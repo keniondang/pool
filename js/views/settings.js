@@ -6,7 +6,6 @@ import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta,
          isLocked } from '../data.js';
 import * as DB from '../db.js';
 import { render } from '../app.js';
-import { renderWizard } from './wizard.js';
 import { toast, confirmDialog, formModal } from '../ui.js';
 
 /** Bills plus savings must leave something to live on. The only invalid state. */
@@ -148,44 +147,48 @@ function incomeCard(c) {
     '<button class="addbill" id="addSrc"><i class="ti ti-plus"></i>Add an income source</button>' +
     '<div class="fhint">Every new month starts with all of these ticked. Untick one when ' +
     'it has not landed yet and the pool drops to what is actually there.</div>' +
+    earlyRows(k) +
     '<div class="field-err" id="incomeErr" style="display:none;"></div></div>';
 }
 
-/** Everything that applies to this cycle only. */
-function thisMonthCard(c) {
+/** The escape hatch. Without it, fixing a drifted balance would mean
+ *  erasing every entry you have logged. */
+/** Salary that lands before the month it belongs to. It never touches
+ *  this month's pool, so this is a note to each other rather than a
+ *  calculation. */
+function earlyRows(k) {
+  if (isLocked(k)) return '';
+  const { y, m } = parseKey(k);
+  const n = new Date(y, m + 1, 1);
+  const nk = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
+  const nst = monthState(nk);
+  const list = S.config.incomeSources || [];
+  if (!list.length) return '';
+  return '<div class="earlybox"><div class="earlyhead">Already arrived for ' +
+    MONTHS[n.getMonth()] + '</div>' +
+    list.map(src => {
+      const on = !!nst.incomeEarly[src.id];
+      return '<button class="paidrow early" data-early="' + src.id + '">' +
+        '<span class="tick' + (on ? ' on' : '') + '">' +
+        (on ? '<i class="ti ti-check"></i>' : '') + '</span>' +
+        '<span class="srcname">' + src.name + '</span>' +
+        '<span class="v">' + fmt(src.amount) + '</span></button>';
+    }).join('') +
+    '<div class="fhint" style="margin-top:8px;">Tick it when next month\'s money lands ' +
+    'early. It stays out of this month\'s pool either way, this is just so you both know.</div></div>';
+}
+
+function balanceCard() {
   const k = S.viewMonth;
   const st = monthState(k);
-  const { m, y } = parseKey(k);
-  const bills = S.config.lockedBills;
-  const paidCount = bills.length - billsUnpaid(k).length;
-
+  const { m } = parseKey(k);
   return '<div class="card"><div class="card-head">' +
-    '<div class="lhs"><i class="ti ti-calendar-stats"></i>' + MONTHS[m] + ' ' + y + ' only</div></div>' +
-
-    '<label class="flabel" style="margin-top:0;">Money left right now</label>' +
-    '<input id="sOverride" class="money" type="text" placeholder="leave blank to work it out" value="' +
+    '<div class="lhs"><i class="ti ti-calendar-stats"></i>Money left right now</div></div>' +
+    '<input id="sOverride" class="money" type="text" ' +
+    'placeholder="leave blank to work it out" value="' +
     (st.balanceOverride === null ? '' : fmt(st.balanceOverride)) + '" />' +
-    '<div class="fhint">Fill this in when you start mid-month, or when the real balance ' +
-    'has drifted from what the app worked out. Only unpaid bills come off it.</div>' +
-
-    '<label class="flabel">Savings this month</label>' +
-    '<input id="sSavMonth" class="money" type="text" placeholder="' + fmt(S.config.savingsTarget) +
-    '" value="' + (st.savingsOverride === null ? '' : fmt(st.savingsOverride)) + '" />' +
-    '<div class="fhint">Blank uses your usual target. Put 0 to skip saving this month.</div>' +
-
-    '<label class="flabel">Bills already paid · ' + paidCount + ' of ' + bills.length + '</label>' +
-    (bills.length
-      ? '<div class="paidlist">' + bills.map(b =>
-          '<button class="paidrow' + (st.billsPaid[b.id] ? ' on' : '') + '" data-bill="' + b.id + '">' +
-          '<span class="tick' + (st.billsPaid[b.id] ? ' on' : '') + '">' +
-          (st.billsPaid[b.id] ? '<i class="ti ti-check"></i>' : '') + '</span>' +
-          '<span class="srcname">' + b.name + '</span>' +
-          '<span class="v">' + fmt(b.amount) + '</span></button>').join('') + '</div>'
-      : '<div class="empty">No bills.</div>') +
-    '<div class="fhint">Only matters alongside a stated balance. Otherwise bills come off ' +
-    'either way, paid or not.</div>' +
-    '<button class="btn outline" id="resetMonth" style="width:100%;margin-top:12px;">' +
-    'Clear this month\'s overrides</button></div>';
+    '<div class="fhint">Only for ' + MONTHS[m] + '. Fill this in when the app has drifted ' +
+    'from your actual account. Clears itself next month.</div></div>';
 }
 
 function plannedCard() {
@@ -221,17 +224,21 @@ export function setView() {
     '<span style="color:var(--ink3);">changes apply straight away</span></div></div>' +
 
     incomeCard(c) +
-    (isLocked(S.viewMonth) ? '' : thisMonthCard(c)) +
+    (isLocked(S.viewMonth) ? '' : balanceCard()) +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-lock"></i>Locked bills</div>' +
     '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.locked) + '</span></div>' +
     (S.config.lockedBills.length
-      ? S.config.lockedBills.map((b, i) =>
-          '<div class="kv"><span>' + b.name + '</span>' +
-          '<span style="display:flex;align-items:center;gap:10px;">' +
-          '<span class="v">' + fmt(b.amount) + '</span>' +
-          '<button class="iconbtn billdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
-          '</span></div>').join('')
+      ? S.config.lockedBills.map((b, i) => {
+          const t = b.times || 1;
+          return '<div class="kv"><span>' + b.name +
+            (t > 1 ? '<span style="color:var(--ink3);font-size:12px;"> · ' +
+              fmt(b.amount) + ' × ' + t + ' a month</span>' : '') + '</span>' +
+            '<span style="display:flex;align-items:center;gap:10px;">' +
+            '<span class="v">' + fmt(b.amount * t) + '</span>' +
+            '<button class="iconbtn billdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
+            '</span></div>';
+        }).join('')
       : '<div class="empty">No bills yet.</div>') +
     '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button></div>' +
 
@@ -244,12 +251,6 @@ export function setView() {
     '<div class="field-err" id="savErr" style="display:none;"></div>' +
     '<label class="flabel">Balance</label>' +
     '<input id="sBal" class="money" type="text" value="' + fmt(S.meta.savingsBalance) + '" /></div>' +
-
-    '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-refresh"></i>Set up again</div></div>' +
-    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">' +
-    'Walk through setup again to change your income, bills, savings, or to state ' +
-    'a fresh balance part-way through a month. Nothing you have logged is deleted.</div>' +
-    '<button class="btn outline" id="rerun" style="width:100%;">Run setup again</button></div>' +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-download"></i>Backup</div></div>' +
     '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">Everything lives in this browser only. Export a file now and then so clearing your browser cannot wipe your history.</div>' +
@@ -354,35 +355,6 @@ export function wireSet() {
     render();
   });
 
-  const sm = $('sSavMonth');
-  if (sm) sm.addEventListener('blur', async () => {
-    const raw = sm.value.trim();
-    st.savingsOverride = raw === '' ? null : money(raw);
-    await saveMonthState(k);
-    render();
-  });
-
-  document.querySelectorAll('.paidrow').forEach(btn => {
-    btn.onclick = async () => {
-      const id = btn.dataset.bill;
-      if (st.billsPaid[id]) delete st.billsPaid[id];
-      else st.billsPaid[id] = true;
-      await saveMonthState(k);
-      render();
-    };
-  });
-
-  const rm = $('resetMonth');
-  if (rm) rm.onclick = async () => {
-    st.balanceOverride = null;
-    st.savingsOverride = null;
-    st.incomeReceived = {};
-    st.billsPaid = {};
-    await saveMonthState(k);
-    render();
-    toast('Cleared this month\'s overrides');
-  };
-
   bindNumber('sSav', 'savErr', (v, dry, mode) => {
     if (mode === 'current') return S.config.savingsTarget;
     if (v < 0) return 'Savings cannot be negative.';
@@ -422,20 +394,23 @@ export function wireSet() {
     formModal({
       title: 'Add a locked bill',
       fields: [
-        { id: 'name', label: 'What is it', placeholder: 'Internet' },
-        { id: 'amount', label: 'Amount each month', placeholder: '0', money: true }
+        { id: 'name', label: 'What is it', placeholder: 'Haircut' },
+        { id: 'amount', label: 'Amount each time', placeholder: '0', money: true },
+        { id: 'times', label: 'How many times a month', value: '1',
+          select: [1,2,3,4,5].map(n => ({ value: n, label: n === 1 ? 'Once' : n + ' times' })) }
       ],
       submitLabel: 'Add',
-      onSubmit: ({ name, amount }) => {
+      onSubmit: ({ name, amount, times }) => {
         if (!name) return 'Give it a name.';
         if (amount <= 0) return 'Enter an amount above zero.';
-        const next = S.config.lockedBills.concat([{ name, amount }]);
+        const t = parseInt(times, 10) || 1;
+        const next = S.config.lockedBills.concat([{ name, amount, times: t }]);
         const err = validate({ bills: next });
         if (err) return err;
         S.config.lockedBills = next;
         persist().then(() => {
           render();
-          toast('Added ' + name + ' · ' + fmt(amount), async () => {
+          toast('Added ' + name + ' · ' + fmt(amount * t) + ' a month', async () => {
             S.config.lockedBills = S.config.lockedBills.filter(
               b => !(b.name === name && b.amount === amount)
             );
@@ -447,6 +422,20 @@ export function wireSet() {
       }
     });
   };
+
+  document.querySelectorAll('.paidrow.early').forEach(btn => {
+    btn.onclick = async () => {
+      const { y, m } = parseKey(k);
+      const n = new Date(y, m + 1, 1);
+      const nk = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
+      const nst = monthState(nk);
+      const id = btn.dataset.early;
+      if (nst.incomeEarly[id]) delete nst.incomeEarly[id];
+      else nst.incomeEarly[id] = new Date().toISOString().slice(0, 10);
+      await saveMonthState(nk);
+      render();
+    };
+  });
 
   // ---- planned one-off spends ----
   const addPlanned = $('addPlanned');
@@ -705,34 +694,24 @@ export function wireSet() {
   };
 
   // ---- erase ----
-  const rerun = $('rerun');
-  if (rerun) rerun.onclick = () => {
-    S.wiz = { step: 1, year: 0, month: null, draft: null, mode: 'edit' };
-    renderWizard('edit');
-  };
-
   $('eraseT').onclick = () => {
     const entryCount = Object.keys(S.months)
       .reduce((n, k) => n + (S.months[k].entries || []).length, 0);
     confirmDialog({
       title: 'Erase everything?',
-      body: 'This wipes the <b>shared</b> pool, so it disappears from her phone too. ' +
+      body: 'This wipes the <b>shared</b> pool, so it disappears from her phone too, ' +
+            'and drops you back into setup. ' +
             plural(entryCount, 'entry', 'entries') + ', your savings balance of ' +
             '<b>' + fmt(S.meta.savingsBalance) + '</b>, your bills, planned spends and ' +
             'wishlist all go. Export a backup first if you might want any of it.',
       confirmLabel: 'Erase everything',
       danger: true,
       onYes: async () => {
-        await DB.pushSnapshot(
-          Object.assign({}, S.config, {
-            lockedBills: [], planned: [], wishlist: []
-          }),
-          { savingsBalance: 0, lastAmounts: {}, closed: [] },
-          {}
-        );
-        S.config = null; S.meta = null; S.months = {};
-        await boot();
-        toast('Everything erased');
+        await DB.deletePool(S.config.poolId);
+        S.config = null; S.meta = null; S.months = {}; S.monthStates = {};
+        S.viewMonth = null; S.curDay = null;
+        S.wiz = { step: 1, year: 0, month: null, draft: null, mode: 'create' };
+        await boot();   // finds no pool, opens setup
       }
     });
   };

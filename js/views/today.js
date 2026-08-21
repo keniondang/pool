@@ -260,6 +260,7 @@ export function todayView() {
     '<span class="v serif" style="font-size:17px;">' + fmt(S.meta.savingsBalance) + '</span></div>' +
     '<div class="kv"><span>' + (locked ? 'Added that month' : 'Adding this month') + '</span>' +
     '<span class="v">' + fmt(c.savings - c.drawn) + '</span></div>' +
+    savedRow(k, c, locked) +
     (!locked && c.available <= 0 && !incomePending(k).length
       ? '<div class="banner warn" style="margin:12px 0 0;"><i class="ti ti-arrow-down-right"></i>' +
         '<span>The pool is empty with ' + c.daysLeft +
@@ -286,12 +287,36 @@ function entryRows(list, locked) {
   ).join('');
 }
 
+/** A savings balance that grows whether or not you moved the money is
+ *  fiction, so the sweep waits for this tick. */
+function savedRow(k, c, locked) {
+  if (locked || c.savings <= 0) return '';
+  const done = monthState(k).savingsDone;
+  return '<button class="paidrow savedone" style="margin-top:4px;">' +
+    '<span class="tick' + (done ? ' on' : '') + '">' +
+    (done ? '<i class="ti ti-check"></i>' : '') + '</span>' +
+    '<span class="srcname">' + (done ? 'Money moved across' : 'Not moved across yet') +
+    '<span class="srcstate">' +
+    (done ? 'counts toward your balance when the month closes'
+          : 'only the leftover pool gets banked until you tick this') +
+    '</span></span></button>';
+}
+
 export function wireToday() {
   const $ = id => document.getElementById(id);
   $('dPrev').onclick = () => shiftDay(-1);
   $('dNext').onclick = () => shiftDay(1);
   if ($('openLog')) $('openLog').onclick = () => openLogSheet();
   if ($('drawT')) $('drawT').onclick = () => openDraw(S.viewMonth);
+
+  const sd = document.querySelector('.savedone');
+  if (sd) sd.onclick = async () => {
+    const st = monthState(S.viewMonth);
+    st.savingsDone = !st.savingsDone;
+    await saveMonthState(S.viewMonth);
+    render();
+    toast(st.savingsDone ? 'Savings marked as moved' : 'Savings marked as not moved');
+  };
 
   document.querySelectorAll('.gotit').forEach(btn => {
     btn.onclick = async () => {

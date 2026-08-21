@@ -54,7 +54,9 @@ export function monthState(k){
       balanceOverride: null,
       savingsOverride: null,
       incomeReceived: {},
-      billsPaid: {}
+      billsPaid: {},
+      savingsDone: false,
+      incomeEarly: {}
     };
   }
   return S.monthStates[k];
@@ -95,8 +97,8 @@ export function plannedFor(k){
 export function calc(k,forDay){
   const {y,m}=parseKey(k), days=dim(y,m), d=md(k);
   const st=monthState(k);
-  const locked=S.config.lockedBills.reduce((s,b)=>s+b.amount,0);
-  const unpaid=billsUnpaid(k).reduce((s,b)=>s+b.amount,0);
+  const locked=S.config.lockedBills.reduce((s,b)=>s+b.amount*(b.times||1),0);
+  const unpaid=billsUnpaid(k).reduce((s,b)=>s+b.amount*(b.times||1),0);
   const planned=plannedFor(k).reduce((s,p)=>s+p.amount,0);
   const savings=savingsFor(k);
   const received=incomeIn(k).reduce((s,x)=>s+x.amount,0);
@@ -184,7 +186,11 @@ export async function sweepClosed(){
   for(const k of Object.keys(S.months)){
     if(k<cur && S.meta.closed.indexOf(k)<0){
       const c=calc(k);
-      const swept=S.config.savingsTarget-c.drawn+c.available;
+      const st=monthState(k);
+      // Only count the target if it was actually set aside. Otherwise
+      // just the leftover pool rolls in.
+      const banked=st.savingsDone ? (savingsFor(k)-c.drawn) : 0;
+      const swept=banked+c.available;
       S.meta.savingsBalance+=swept;
       S.meta.closed.push(k);
       await DB.markCycleClosed(S.config.poolId,k,swept);
@@ -209,7 +215,6 @@ export function shiftDay(delta){
   if(d<1){
     const p=new Date(y,m-1,1);
     const pk=key(p.getFullYear(),p.getMonth());
-    if(pk<S.config.startMonth) return;
     S.viewMonth=pk;S.curDay=dim(p.getFullYear(),p.getMonth());
   } else if(d>days){
     const n=new Date(y,m+1,1);

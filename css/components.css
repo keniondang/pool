@@ -516,3 +516,24 @@ input.invalid{ border-color:#C4795E !important; }
 .pick.on .ps{ color:#3D6B52; }
 .mtile:disabled{ opacity:.32; cursor:default; }
 .steps div{ transition:background .2s ease; }
+
+/* ---------------------------------------------------------- early arrivals */
+.earlybox{
+  border-top:1px solid var(--line); margin-top:14px; padding-top:12px;
+}
+.earlyhead{
+  font-size:11px; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--ink3); font-weight:500; margin-bottom:4px;
+}
+.paidrow.early .srcname{ text-decoration:none; color:var(--ink); }
+.paidrow.early.on .srcname{ color:var(--ink); }
+.paidrow.savedone{ align-items:flex-start; }
+.paidrow.savedone .tick{ margin-top:2px; }
+
+/* bill frequency select inside a row */
+.billrow .bt{
+  width:60px; flex-shrink:0; font-family:'Inter',sans-serif; font-size:14px;
+  background:var(--paper); border:1px solid var(--line2); border-radius:11px;
+  padding:11px 6px; color:var(--ink2); appearance:none; text-align:center;
+}
+.billrow .bt:focus{ outline:none; border-color:var(--sage); }

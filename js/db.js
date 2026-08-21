@@ -83,7 +83,7 @@ export async function loadAll() {
     savingsTarget: Number(p.savings_target),
     startMonth: p.start_month,
     lockedBills: (bills || []).map(b => ({
-      id: b.id, name: b.name, amount: Number(b.amount)
+      id: b.id, name: b.name, amount: Number(b.amount), times: Number(b.times || 1)
     })),
     planned: p.planned || [],
     wishlist: p.wishlist || [],
@@ -108,7 +108,9 @@ export async function loadAll() {
       balanceOverride: st.balance_override === null ? null : Number(st.balance_override),
       savingsOverride: st.savings_override === null ? null : Number(st.savings_override),
       incomeReceived: st.income_received || {},
-      billsPaid: st.bills_paid || {}
+      billsPaid: st.bills_paid || {},
+      savingsDone: !!st.savings_done,
+      incomeEarly: st.income_early || {}
     };
   });
 
@@ -157,7 +159,7 @@ export async function saveConfig(config) {
     await req('locked_bills', {
       method: 'POST',
       body: config.lockedBills.map(b => ({
-        pool_id: config.poolId, name: b.name, amount: b.amount
+        pool_id: config.poolId, name: b.name, amount: b.amount, times: b.times || 1
       }))
     });
   }
@@ -222,6 +224,12 @@ export async function markCycleClosed(poolId, cycleKey, swept) {
   });
 }
 
+/** Deletes the pool. Everything else cascades. boot() then finds no pool
+ *  and drops into the wizard, which is what erase is supposed to do. */
+export async function deletePool(poolId) {
+  await req('pools?id=eq.' + poolId, { method: 'DELETE' });
+}
+
 /** Used by the first-run wizard, which creates the pool row itself. */
 export async function createPool(cfg) {
   const rows = await req('pools', {
@@ -274,6 +282,8 @@ export async function saveMonthState(poolId, cycleKey, st) {
       savings_override: st.savingsOverride,
       income_received: st.incomeReceived || {},
       bills_paid: st.billsPaid || {},
+      savings_done: !!st.savingsDone,
+      income_early: st.incomeEarly || {},
       updated_at: new Date().toISOString()
     }
   });

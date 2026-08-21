@@ -14,9 +14,10 @@ const blank = () => ({
   balance: 0,
   incomeSources: [{ id: 'src-' + Date.now(), name: '', amount: 0 }],
   lockedBills: [
-    { name: 'Rent and utilities', amount: 0 },
-    { name: 'Transport', amount: 0 }
+    { name: 'Rent and utilities', amount: 0, times: 1 },
+    { name: 'Transport', amount: 0, times: 1 }
   ],
+  planned: [],
   billsPaid: false,
   savingsTarget: 0,
   savingsThisMonth: null,    // null = same as target
@@ -31,7 +32,8 @@ function fromConfig() {
     useBalance: st.balanceOverride !== null,
     balance: st.balanceOverride === null ? 0 : st.balanceOverride,
     incomeSources: (S.config.incomeSources || []).map(x => Object.assign({}, x)),
-    lockedBills: (S.config.lockedBills || []).map(b => ({ name: b.name, amount: b.amount })),
+    lockedBills: (S.config.lockedBills || []).map(b => ({ name: b.name, amount: b.amount, times: b.times || 1 })),
+    planned: (S.config.planned || []).map(p => Object.assign({}, p)),
     billsPaid: Object.keys(st.billsPaid || {}).length > 0,
     savingsTarget: S.config.savingsTarget,
     savingsThisMonth: st.savingsOverride,
@@ -55,9 +57,10 @@ export function renderWizard(mode) {
     '<h1 style="margin-bottom:14px;">' +
       (S.wiz.mode === 'edit' ? 'Adjust your pool' : 'Build your pool') + '</h1>' +
     '<div class="steps">' +
-      [1, 2, 3, 4].map(n => '<div class="' + (step >= n ? 'on' : '') + '"></div>').join('') +
+      [1, 2, 3, 4, 5].map(n => '<div class="' + (step >= n ? 'on' : '') + '"></div>').join('') +
     '</div>' +
-    (step === 1 ? step1(d) : step === 2 ? step2(d) : step === 3 ? step3(d) : step4(d)) +
+    (step === 1 ? step1(d) : step === 2 ? step2(d) : step === 3 ? step3(d)
+      : step === 4 ? step4(d) : step5(d)) +
     '</div>';
 
   wire();
@@ -149,10 +152,10 @@ function step3(d) {
       '<div id="bills">' + d.lockedBills.map(rowHTML('bill')).join('') + '</div>' +
       '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button>' +
       '<div class="kv total"><span>Locked each month</span><span class="v" id="billTotal">' +
-      fmt(d.lockedBills.reduce((s, b) => s + b.amount, 0)) + '</span></div>' +
+      fmt(d.lockedBills.reduce((s, b) => s + b.amount * (b.times || 1), 0)) + '</span></div>' +
     '</div>' +
     '<div class="fhint">Put anything predictable here, including fun money like date nights. ' +
-    'Pre-committing it means you never skip it because the month went badly.</div>' +
+    'Use ×2 for things you pay twice a month, like a haircut at 180.000 each time.</div>' +
 
     (d.useBalance
       ? '<div class="card" style="margin-top:12px;"><div class="card-head"><div class="lhs">' +
@@ -196,6 +199,33 @@ function step4(d) {
     '<div class="preview" id="prev"><span class="l">Your daily number</span>' +
     '<span class="v" id="prevV">0</span></div>' +
     '<div class="navbtns"><button class="btn outline" id="back">Back</button>' +
+    '<button class="btn solid" id="next4">Continue</button></div>';
+}
+
+// ---------------------------------------------------------------- step 5
+
+function step5(d) {
+  const { m } = parseKey(d.startMonth);
+  const p = previewDaily(d);
+  return '<p class="setup-lead">Any one-off you already know about, like a wedding gift ' +
+    'or a flight. Setting it aside now means the money is there on the day instead of ' +
+    'the daily number cratering when it lands.</p>' +
+    '<div class="card">' +
+      '<div id="plans">' + (d.planned.length
+        ? d.planned.map((p2, i) =>
+            '<div class="kv"><span>' + p2.name +
+            '<span style="color:var(--ink3);font-size:12px;"> · ' + p2.due + '</span></span>' +
+            '<span style="display:flex;align-items:center;gap:10px;">' +
+            '<span class="v">' + fmt(p2.amount) + '</span>' +
+            '<button class="iconbtn planrm" data-i="' + i + '"><i class="ti ti-x"></i></button>' +
+            '</span></div>').join('')
+        : '<div class="empty">Nothing set aside. Most people skip this.</div>') + '</div>' +
+      '<button class="addbill" id="addPlan"><i class="ti ti-plus"></i>Set money aside</button>' +
+    '</div>' +
+    '<div class="err" id="e4">That does not leave anything to live on. Lower something.</div>' +
+    '<div class="preview" id="prev"><span class="l">Your daily number</span>' +
+    '<span class="v" id="prevV">' + (p.pool <= 0 ? 'Does not fit' : fmt(p.perDay)) + '</span></div>' +
+    '<div class="navbtns"><button class="btn outline" id="back">Back</button>' +
     '<button class="btn solid" id="done">' +
     (S.wiz.mode === 'edit' ? 'Save' : 'Start') + '</button></div>';
 }
@@ -209,15 +239,24 @@ function rowHTML(kind) {
       (kind === 'src' ? 'Whose' : 'Name') + '" />' +
       '<input class="ba money" type="text" value="' + (item.amount ? fmt(item.amount) : '') +
       '" placeholder="0" />' +
+      (kind === 'bill'
+        ? '<select class="bt">' + [1,2,3,4,5].map(n =>
+            '<option value="' + n + '"' + ((item.times || 1) === n ? ' selected' : '') + '>' +
+            (n === 1 ? '×1' : '×' + n) + '</option>').join('') + '</select>'
+        : '') +
       '<button class="iconbtn rmrow"><i class="ti ti-x"></i></button>' +
     '</div>';
 }
 
 function readRows(sel) {
-  return [].slice.call(document.querySelectorAll(sel + ' .billrow')).map(r => ({
-    name: r.querySelector('.bn').value.trim(),
-    amount: money(r.querySelector('.ba').value)
-  }));
+  return [].slice.call(document.querySelectorAll(sel + ' .billrow')).map(r => {
+    const t = r.querySelector('.bt');
+    return {
+      name: r.querySelector('.bn').value.trim(),
+      amount: money(r.querySelector('.ba').value),
+      times: t ? parseInt(t.value, 10) : 1
+    };
+  });
 }
 
 function ordinal(n) {
@@ -233,13 +272,17 @@ function previewDaily(d) {
   const refDay = isNow ? new Date().getDate() : 1;
   const daysLeft = days - refDay + 1;
 
-  const bills = d.lockedBills.reduce((s, b) => s + b.amount, 0);
+  const bills = d.lockedBills.reduce((s, b) => s + b.amount * (b.times || 1), 0);
   const income = d.incomeSources.reduce((s, x) => s + x.amount, 0);
   const savings = (midMonth(d) && d.savingsThisMonth !== null) ? d.savingsThisMonth : d.savingsTarget;
 
-  const pool = d.useBalance
+  const planned = (d.planned || [])
+    .filter(p => p.due && p.due.slice(0, 7) === d.startMonth)
+    .reduce((s, p) => s + p.amount, 0);
+
+  const pool = (d.useBalance
     ? d.balance - (d.billsPaid ? 0 : bills) - savings
-    : income - bills - savings;
+    : income - bills - savings) - planned;
 
   return { pool, daysLeft, perDay: pool / Math.max(1, daysLeft) };
 }
@@ -300,9 +343,11 @@ function wire() {
 
   if (S.wiz.step === 3) {
     const sync = () => {
-      $('billTotal').textContent = fmt(readRows('#bills').reduce((s, b) => s + b.amount, 0));
+      $('billTotal').textContent =
+        fmt(readRows('#bills').reduce((s, b) => s + b.amount * (b.times || 1), 0));
     };
-    document.querySelectorAll('#bills input').forEach(i => i.addEventListener('input', sync));
+    document.querySelectorAll('#bills input, #bills select')
+      .forEach(i => i.addEventListener('input', sync));
     $('addBill').onclick = () => { syncStep(); d.lockedBills.push({ name: '', amount: 0 }); renderWizard(); };
     document.querySelectorAll('.pick[data-paid]').forEach(b => {
       b.onclick = () => { syncStep(); d.billsPaid = b.dataset.paid === '1'; renderWizard(); };
@@ -324,6 +369,34 @@ function wire() {
     };
     ['wSav', 'wStart', 'wSavMonth'].forEach(id => { if ($(id)) $(id).addEventListener('input', upd); });
     upd();
+    $('next4').onclick = () => { syncStep(); S.wiz.step = 5; renderWizard(); };
+  }
+
+  if (S.wiz.step === 5) {
+    $('addPlan').onclick = () => {
+      import('../ui.js').then(({ formModal }) => {
+        formModal({
+          title: 'Set money aside',
+          fields: [
+            { id: 'name', label: 'What for', placeholder: 'Wedding gift' },
+            { id: 'amount', label: 'How much', placeholder: '0', money: true },
+            { id: 'due', label: 'When (YYYY-MM-DD)', value: d.startMonth + '-28' }
+          ],
+          submitLabel: 'Set aside',
+          onSubmit: ({ name, amount, due }) => {
+            if (!name) return 'Give it a name.';
+            if (amount <= 0) return 'Enter an amount above zero.';
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return 'Date needs to look like 2026-09-22.';
+            d.planned.push({ name, amount, due });
+            renderWizard();
+            return null;
+          }
+        });
+      });
+    };
+    document.querySelectorAll('.planrm').forEach(b => {
+      b.onclick = () => { d.planned.splice(parseInt(b.dataset.i, 10), 1); renderWizard(); };
+    });
     $('done').onclick = () => finish();
   }
 
@@ -386,7 +459,7 @@ async function finish() {
   S.config.incomeSources = d.incomeSources;
   S.config.lockedBills = d.lockedBills;
   S.config.savingsTarget = d.savingsTarget;
-  S.config.planned = S.config.planned || [];
+  S.config.planned = d.planned || [];
   S.config.wishlist = S.config.wishlist || [];
   S.meta.savingsBalance = d.startingSavings;
 
