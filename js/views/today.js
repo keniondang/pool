@@ -44,10 +44,10 @@ export function todayView() {
     // date and the day arrows share one row, so the old nav card is gone
     '<div class="topbar"><div><div class="eyebrow">Pool</div>' +
     '<h1>' + (isToday ? 'Today' : MONTHS[m] + ' ' + y) + '</h1></div>' +
-    '<div style="display:flex;align-items:center;gap:8px;">' +
+    '<div style="display:flex;align-items:center;gap:6px;">' +
       '<button class="navbtn" id="dPrev"' + (prevBlocked ? ' disabled' : '') + '>' +
       '<i class="ti ti-chevron-left"></i></button>' +
-      '<div class="meta" style="min-width:96px;">' +
+      '<div class="meta" style="min-width:88px;">' +
       dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
       '<br><span style="color:var(--ink3);">' + c.daysLeft + ' days left</span></div>' +
       '<button class="navbtn" id="dNext"><i class="ti ti-chevron-right"></i></button>' +
@@ -87,9 +87,9 @@ function curSafe(c) {
   return S.curDay || (c.isNow ? new Date().getDate() : 1);
 }
 
-function entryRows(list, freshId) {
+function entryRows(list) {
   return list.map(e =>
-    '<div class="entry' + (e.id === freshId ? ' fresh' : '') + '">' +
+    '<div class="entry">' +
     '<span class="amt">' + fmt(e.amount) + '</span>' +
     '<span class="cat" style="background:' + catTint(catOf(e)) + ';color:' + catColor(catOf(e)) + '">' +
     '<i class="ti ' + catIcon(catOf(e)) + '"></i>' + catLabel(catOf(e)) + '</span>' +
@@ -119,18 +119,17 @@ export function openLogSheet() {
   const k = S.viewMonth;
   ensureDay();
   const { y, m } = parseKey(k);
-  let freshId = null;
   noteOpen = false;
 
   const sheet = openSheet({
     header: sheetHeader(k),
-    body: sheetBody(k, freshId),
+    body: sheetBody(k),
     onMount(wrap, api) { wire(wrap, api); }
   });
 
   function refresh(api) {
     api.setHeader(sheetHeader(k));
-    api.setBody(sheetBody(k, freshId));
+    api.setBody(sheetBody(k));
   }
 
   function wire(wrap, api) {
@@ -143,7 +142,6 @@ export function openLogSheet() {
     wrap.querySelectorAll('.catchip').forEach(ch => {
       ch.onclick = () => {
         S.selCat = ch.dataset.c;
-        freshId = null;
         refresh(api);
       };
     });
@@ -162,11 +160,6 @@ export function openLogSheet() {
         amt.value = (money(amt.value) + parseInt(ch.dataset.v, 10)).toLocaleString('de-DE');
       };
     });
-
-    const rep = q('#repeatBtn');
-    if (rep) rep.onclick = () => {
-      amt.value = parseInt(rep.dataset.v, 10).toLocaleString('de-DE');
-    };
 
     const clr = q('#clrAmt');
     if (clr) clr.onclick = () => { amt.value = ''; amt.focus(); };
@@ -189,28 +182,14 @@ export function openLogSheet() {
       S.meta.lastAmounts = S.meta.lastAmounts || {};
       S.meta.lastAmounts[S.selCat] = raw;
       await saveMeta();
-      freshId = entry.id;
       noteOpen = false;
       // The sheet stays open on purpose: three purchases at a till
       // become one sheet and three taps instead of three round trips.
       refresh(api);
       render();
+      toast('Logged ' + fmt(raw) + ' · ' + catLabel(entry.cat));
     };
 
-    wrap.querySelectorAll('.del').forEach(btn => {
-      btn.onclick = async () => {
-        const id = btn.dataset.id;
-        const list = md(k).entries;
-        const target = list.find(e => e.id === id);
-        if (!target) return;
-        const { dropEntry } = await import('../data.js');
-        await dropEntry(k, target);
-        freshId = null;
-        refresh(api);
-        render();
-        toast('Removed ' + fmt(target.amount) + ' · ' + catLabel(target.cat || 'others'));
-      };
-    });
   }
 }
 
@@ -227,24 +206,13 @@ function sheetHeader(k) {
     '<button class="sheet-x"><i class="ti ti-x"></i></button></div>';
 }
 
-function sheetBody(k, freshId) {
-  const { y, m } = parseKey(k);
-  const tIso = iso(y, m, S.curDay);
-  const dayEntries = md(k).entries.filter(e => e.date === tIso);
-  const spentToday = dayEntries.reduce((s, e) => s + e.amount, 0);
-  const last = (S.meta.lastAmounts || {})[S.selCat];
+function sheetBody(k) {
 
   return '<div class="catrow">' +
     CATS.map(ct => '<button class="catchip' + (S.selCat === ct.id ? ' on' : '') +
       '" data-c="' + ct.id + '" style="--cc:' + ct.c + ';--ct:' + ct.t + '">' +
       '<i class="ti ' + ct.icon + '"></i>' + ct.label + '</button>').join('') +
     '</div>' +
-
-    (last
-      ? '<button class="repeat" id="repeatBtn" data-v="' + last + '">' +
-        '<i class="ti ti-repeat"></i>Same as last ' + catLabel(S.selCat).toLowerCase() +
-        ' · ' + fmt(last) + '</button>'
-      : '') +
 
     '<div class="amtbox" style="border-color:' + catColor(S.selCat) + '">' +
     '<input id="amt" type="text" inputmode="numeric" placeholder="0" />' +
@@ -263,10 +231,7 @@ function sheetBody(k, freshId) {
     '<button class="btn solid" id="logBtn" style="width:100%;margin-top:14px;background:' +
     catColor(S.selCat) + ';">Log ' + catLabel(S.selCat).toLowerCase() + '</button>' +
 
-    (dayEntries.length
-      ? '<div class="sheet-logged"><div class="lh">Logged today · ' + fmt(spentToday) + '</div>' +
-        entryRows(dayEntries, freshId) + '</div>'
-      : '');
+    '';
 }
 
 // ---------------------------------------------------------------- savings draw

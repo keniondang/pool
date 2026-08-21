@@ -4,12 +4,12 @@
   .card-head .lhs{display:flex;align-items:center;gap:7px;}
   .card-head i{font-size:15px;color:var(--ink3);}
 
-  .hero{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px 20px 20px;margin-bottom:12px;}
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px 20px 18px;margin-bottom:12px;}
   .hero-label{font-size:13px;color:var(--ink2);margin-bottom:8px;}
   .hero-num{font-family:'Fraunces',serif;font-weight:500;font-size:42px;line-height:1;letter-spacing:-.015em;color:var(--sage);font-variant-numeric:tabular-nums;}
   .hero-num .cur{font-size:17px;color:var(--ink3);margin-left:5px;font-family:'Inter',sans-serif;font-weight:450;}
-  .hero-sub{font-size:13px;color:var(--ink3);margin-top:9px;}
-  .meter{height:5px;background:var(--line);border-radius:99px;margin-top:16px;overflow:hidden;}
+  .hero-sub{font-size:13px;color:var(--ink3);margin-top:7px;}
+  .meter{height:5px;background:var(--line);border-radius:99px;margin-top:14px;overflow:hidden;}
   .meter span{display:block;height:100%;border-radius:99px;background:var(--sage);transition:width .3s ease;}
   .meter.over span{background:var(--brass);}
   .meter-legend{display:flex;justify-content:space-between;font-size:12px;color:var(--ink3);margin-top:7px;}
@@ -103,8 +103,8 @@
 
   .monthnav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
   .monthnav .name{font-family:'Fraunces',serif;font-size:17px;font-weight:500;}
-  .navbtn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line2);background:var(--card);
-    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink2);}
+  .navbtn{width:32px;height:32px;border-radius:9px;border:1px solid var(--line2);background:var(--card);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink2);flex-shrink:0;}
   .navbtn:disabled{opacity:.3;cursor:default;}
   .navbtn i{font-size:17px;}
 
@@ -367,7 +367,8 @@ input.invalid{ border-color:#C4795E !important; }
 @keyframes flash{ from{ background:var(--sage-bg); } to{ background:transparent; } }
 
 .logcta{
-  width:100%; padding:15px; font-size:15px; font-weight:500;
+  width:100%; padding:16px; font-size:15px; font-weight:500;
   display:flex; align-items:center; justify-content:center; gap:8px;
+  margin:0 0 12px;   /* matches the 12px gap every card uses */
 }
 .logcta i{ font-size:19px; }
