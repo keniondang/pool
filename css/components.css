@@ -427,3 +427,22 @@ input.invalid{ border-color:#C4795E !important; }
 }
 .handled i{ font-size:16px; color:var(--ink3); flex-shrink:0; }
 .handled b{ color:var(--ink); font-variant-numeric:tabular-nums; }
+
+/* three day-level figures inside the tinted hero */
+.herostats{
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;
+  margin-top:15px; padding-top:13px; border-top:1px solid rgba(63,120,88,.22);
+}
+.hero.tint.warn .herostats{ border-top-color:rgba(168,117,46,.26); }
+.herostats > div{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.herostats .l{ font-size:11px; color:#5C806C; letter-spacing:.02em; }
+.herostats .v{
+  font-size:14px; font-weight:500; color:#2C513E;
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.hero.tint.warn .herostats .l{ color:#9C7B3F; }
+.hero.tint.warn .herostats .v{ color:#78561F; }
+
+/* keep multi-part banner text as one flex item so the gap does not
+   land either side of every <b> */
+.banner > span{ flex:1; min-width:0; }

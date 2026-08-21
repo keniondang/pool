@@ -81,13 +81,14 @@ function upcomingCard(k, c) {
   const out = [];
   plannedFor(k).forEach(p => {
     out.push('<div class="banner warn" style="margin-bottom:8px;">' +
-      '<i class="ti ti-calendar-plus"></i>' + p.name + ', <b>' + fmt(p.amount) +
-      '</b>, set aside for the ' + ordinal(+p.due.slice(8, 10)) + '</div>');
+      '<i class="ti ti-calendar-plus"></i><span>' + p.name + ', <b>' + fmt(p.amount) +
+      '</b>, set aside for the ' + ordinal(+p.due.slice(8, 10)) + '</span></div>');
   });
   (S.config.wishlist || []).forEach(w => {
     if (daysSince(w.added) >= 30) {
       out.push('<div class="banner safe" style="margin-bottom:8px;">' +
-        '<i class="ti ti-bookmark"></i>' + w.name + ' has waited 30 days. Still want it?</div>');
+        '<i class="ti ti-bookmark"></i><span>' + w.name +
+        ' has waited 30 days. Still want it?</span></div>');
     }
   });
   return out.join('');
@@ -153,6 +154,13 @@ export function todayView() {
     '<div class="hero tint' + (pl.over ? ' warn' : '') + '">' +
     '<div class="hero-label">Safe to spend today</div>' +
     '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
+    '<div class="herostats">' +
+      '<div><span class="l">' + (c.available < 0 ? 'Over pool' : 'Pool left') + '</span>' +
+      '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
+      '<div><span class="l">Spent today</span><span class="v">' + fmt(spentToday) + '</span></div>' +
+      '<div><span class="l">' + (spentToday > c.perDay ? 'Over by' : 'To go') + '</span>' +
+      '<span class="v">' + fmt(Math.abs(c.perDay - spentToday)) + '</span></div>' +
+    '</div>' +
     '<div class="mb-head"><span>Month spent</span><span>day ' + c.ref + ' of ' + c.days + '</span></div>' +
     '<div class="monthbar"><span class="mb-fill" style="width:' + pl.spentPct + '%"></span>' +
     '<span class="mb-tick" style="left:' + pl.monthPct + '%"></span></div>' +
