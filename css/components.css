@@ -313,23 +313,23 @@ input.invalid{ border-color:#C4795E !important; }
 /* ---------------------------------------------------------- log sheet */
 .sheet-overlay{
   position:fixed; inset:0; z-index:95;
-  background:rgba(26,35,29,.34);
-  display:flex; align-items:flex-end; justify-content:center;
+  background:rgba(26,35,29,.38);
+  display:flex; align-items:center; justify-content:center;
+  padding:16px; padding-bottom:calc(16px + env(safe-area-inset-bottom));
   opacity:0; transition:opacity .2s ease;
 }
 .sheet-overlay.in{ opacity:1; }
 .sheet{
-  background:var(--card); width:100%; max-width:460px;
-  border-radius:20px 20px 0 0; max-height:94vh;
+  background:var(--card); width:100%; max-width:440px;
+  border-radius:20px;
+  /* dvh tracks the visible area when Safari's toolbar slides in and out,
+     so the card is never cut off by browser chrome */
+  max-height:86vh; max-height:86dvh;
   display:flex; flex-direction:column;
-  transform:translateY(18px); transition:transform .22s ease;
-  box-shadow:0 -8px 34px rgba(26,35,29,.18);
+  transform:translateY(14px) scale(.99); transition:transform .22s ease;
+  box-shadow:0 12px 40px rgba(26,35,29,.24);
 }
-.sheet-overlay.in .sheet{ transform:translateY(0); }
-@media (min-width:600px){
-  .sheet-overlay{ align-items:center; }
-  .sheet{ border-radius:20px; max-height:88vh; }
-}
+.sheet-overlay.in .sheet{ transform:translateY(0) scale(1); }
 
 .sheet-head{
   padding:16px 18px 13px; border-bottom:1px solid var(--line); flex-shrink:0;
@@ -337,7 +337,7 @@ input.invalid{ border-color:#C4795E !important; }
 .sheet-head .meter{ margin-top:12px; }
 .sheet-head .meter-legend{ margin-top:6px; }
 .sheet-body{
-  padding:16px 18px calc(20px + env(safe-area-inset-bottom));
+  padding:16px 18px 18px;
   overflow-y:auto; -webkit-overflow-scrolling:touch;
 }
 .sheet-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
@@ -355,11 +355,6 @@ input.invalid{ border-color:#C4795E !important; }
 }
 .sheet-x:active{ background:var(--paper); }
 
-.notelink{
-  background:none; border:none; padding:0; margin-top:10px; cursor:pointer;
-  font-family:'Inter',sans-serif; font-size:12.5px; color:var(--sage);
-  text-decoration:underline; text-underline-offset:2px;
-}
 .sheet-logged{ border-top:1px solid var(--line); margin-top:18px; padding-top:12px; }
 .sheet-logged .lh{
   font-size:11px; letter-spacing:.07em; text-transform:uppercase;

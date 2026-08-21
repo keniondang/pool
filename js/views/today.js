@@ -11,7 +11,6 @@ import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
 // fold on a phone.
 
 let autoOpened = false;
-let noteOpen = false;
 
 export function todayView() {
   ensureDay();
@@ -44,14 +43,20 @@ export function todayView() {
     // date and the day arrows share one row, so the old nav card is gone
     '<div class="topbar"><div><div class="eyebrow">Pool</div>' +
     '<h1>' + (isToday ? 'Today' : MONTHS[m] + ' ' + y) + '</h1></div>' +
-    '<div style="display:flex;align-items:center;gap:6px;">' +
+    '<div class="meta">' +
+    dObj.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+    '<br><span style="color:var(--ink3);">' + c.daysLeft + ' days left in ' + MSHORT[m] +
+    '</span></div></div>' +
+
+    '<div class="daynav">' +
       '<button class="navbtn" id="dPrev"' + (prevBlocked ? ' disabled' : '') + '>' +
       '<i class="ti ti-chevron-left"></i></button>' +
-      '<div class="meta" style="min-width:88px;">' +
+      '<div class="daynav-mid"><span class="dn">' +
       dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
-      '<br><span style="color:var(--ink3);">' + c.daysLeft + ' days left</span></div>' +
+      '</span><span class="ds">' +
+      (spentToday > 0 ? fmt(spentToday) + ' logged' : 'nothing logged') + '</span></div>' +
       '<button class="navbtn" id="dNext"><i class="ti ti-chevron-right"></i></button>' +
-    '</div></div>' +
+    '</div>' +
 
     '<div class="hero"><div class="hero-label">Safe to spend today</div>' +
     '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
@@ -119,7 +124,6 @@ export function openLogSheet() {
   const k = S.viewMonth;
   ensureDay();
   const { y, m } = parseKey(k);
-  noteOpen = false;
 
   const sheet = openSheet({
     header: sheetHeader(k),
@@ -164,9 +168,6 @@ export function openLogSheet() {
     const clr = q('#clrAmt');
     if (clr) clr.onclick = () => { amt.value = ''; amt.focus(); };
 
-    const nl = q('#noteLink');
-    if (nl) nl.onclick = () => { noteOpen = true; refresh(api); };
-
     const log = q('#logBtn');
     if (log) log.onclick = async () => {
       const raw = money(amt.value);
@@ -182,7 +183,6 @@ export function openLogSheet() {
       S.meta.lastAmounts = S.meta.lastAmounts || {};
       S.meta.lastAmounts[S.selCat] = raw;
       await saveMeta();
-      noteOpen = false;
       // The sheet stays open on purpose: three purchases at a till
       // become one sheet and three taps instead of three round trips.
       refresh(api);
@@ -239,9 +239,7 @@ function sheetBody(k) {
       .map(v => '<button class="chip" data-v="' + v + '">+' + short(v) + '</button>').join('') +
     '</div>' +
 
-    (noteOpen
-      ? '<input id="note" type="text" placeholder="Note" style="margin-top:12px;" />'
-      : '<button class="notelink" id="noteLink">Add a note</button>') +
+    '<input id="note" type="text" placeholder="Note, optional" style="margin-top:12px;" />' +
 
     '<button class="btn solid" id="logBtn" style="width:100%;margin-top:14px;background:' +
     catColor(S.selCat) + ';">Log ' + catLabel(S.selCat).toLowerCase() + '</button>' +
