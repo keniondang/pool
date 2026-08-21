@@ -272,27 +272,34 @@ input.invalid{ border-color:#C4795E !important; }
 
 /* ---------------------------------------------------------- wishlist */
 .wish{
-  border:1px solid var(--line); border-radius:13px;
-  padding:12px 13px; margin-bottom:9px; background:var(--paper);
+  border:1px solid var(--line); border-radius:14px;
+  padding:14px; margin-bottom:10px; background:var(--paper);
 }
 .wish.ready{ background:var(--sage-bg); border-color:var(--sage-mid); }
-.wish-top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
-.wish-name{ font-size:14.5px; font-weight:500; }
-.wish-amt{ font-variant-numeric:tabular-nums; font-size:14.5px; flex-shrink:0; }
-.wish-sub{ font-size:12px; color:var(--ink3); margin-top:3px; font-variant-numeric:tabular-nums; }
-.wish-wait{
-  display:flex; align-items:center; gap:9px; margin-top:9px;
-  font-size:11.5px; color:var(--ink3); font-variant-numeric:tabular-nums;
+
+.wish-name{ font-size:15px; font-weight:500; line-height:1.35; }
+.wish-amt{
+  font-family:'Fraunces',serif; font-size:17px; font-weight:500;
+  font-variant-numeric:tabular-nums; white-space:nowrap; flex-shrink:0;
 }
-.wish-bar{ flex:1; height:4px; background:var(--line); border-radius:99px; overflow:hidden; }
-.wish-bar span{ display:block; height:100%; background:var(--sage-mid); border-radius:99px; }
-.wish-status.ready{ font-size:12.5px; color:#2C513E; font-weight:500; margin-top:8px; }
-.wish-acts{
-  display:flex; align-items:center; gap:14px; margin-top:10px;
-  padding-top:9px; border-top:1px solid var(--line);
+.wish-sub{ font-size:12px; color:var(--ink3); }
+.wish-pill{
+  background:var(--card); border:1px solid var(--line); border-radius:7px;
+  padding:3px 8px; font-variant-numeric:tabular-nums; color:var(--ink2);
 }
-.wish-acts .btn.quiet{ font-size:12.5px; }
-.wish-acts .iconbtn{ margin-left:auto; font-size:16px; }
+.wish.ready .wish-pill{ background:rgba(255,255,255,.65); }
+
+.wish-bar{ height:5px; background:var(--line); border-radius:99px; overflow:hidden; }
+.wish-bar > span{ display:block; height:100%; background:var(--sage-mid); border-radius:99px; }
+.wish-days{
+  font-size:11.5px; color:var(--ink3);
+  font-variant-numeric:tabular-nums; white-space:nowrap; flex-shrink:0;
+}
+.wish-status{
+  font-size:13px; color:#2C513E; font-weight:500; margin-top:10px; line-height:1.5;
+}
+.wish-acts .btn.outline{ padding:8px 12px; font-size:12.5px; }
+.wish-acts .iconbtn{ font-size:16px; }
 
 /* select inside modals */
 .modal-form select{

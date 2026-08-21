@@ -77,20 +77,33 @@ function wishlistCard() {
     const pct = Math.min(100, (waited / COOL_DAYS) * 100);
 
     return '<div class="wish' + (ready ? ' ready' : '') + '">' +
-      '<div class="wish-top">' +
+
+      '<div class="wish-top" style="display:flex;justify-content:space-between;' +
+        'align-items:flex-start;gap:12px;">' +
         '<span class="wish-name">' + w.name + '</span>' +
         '<span class="wish-amt">' + fmt(w.amount) + '</span>' +
       '</div>' +
-      '<div class="wish-sub">' + days + ' days of your allowance · aiming for ' +
-        MONTHS[m].slice(0, 3) + ' ' + String(y).slice(2) + '</div>' +
+
+      '<div class="wish-sub" style="display:flex;gap:8px;align-items:center;' +
+        'flex-wrap:wrap;margin-top:5px;">' +
+        '<span class="wish-pill">' + days + ' days of your allowance</span>' +
+        '<span>' + MONTHS[m] + ' ' + y + '</span>' +
+      '</div>' +
+
       (ready
-        ? '<div class="wish-status ready">Waited ' + waited + ' days. Still want it?</div>'
-        : '<div class="wish-wait"><div class="wish-bar"><span style="width:' + pct + '%"></span></div>' +
-          '<span>' + left + ' more day' + (left === 1 ? '' : 's') + '</span></div>') +
-      '<div class="wish-acts">' +
-        '<button class="btn quiet wishplan" data-i="' + i + '">Set aside</button>' +
-        '<button class="btn quiet wishbuy" data-i="' + i + '">Bought it</button>' +
-        '<button class="iconbtn wishdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
+        ? '<div class="wish-status">Waited ' + waited + ' days. Still want it?</div>'
+        : '<div class="wish-wait" style="display:flex;align-items:center;gap:10px;' +
+            'margin-top:10px;">' +
+            '<span class="wish-bar" style="flex:1;display:block;"><span style="width:' +
+              pct + '%"></span></span>' +
+            '<span class="wish-days">' + left + ' day' + (left === 1 ? '' : 's') + ' to go</span>' +
+          '</div>') +
+
+      '<div class="wish-acts" style="display:flex;align-items:center;gap:8px;margin-top:12px;">' +
+        '<button class="btn outline wishplan" data-i="' + i + '">Set aside</button>' +
+        '<button class="btn outline wishbuy" data-i="' + i + '">Bought it</button>' +
+        '<button class="iconbtn wishdel" data-i="' + i + '" style="margin-left:auto;">' +
+          '<i class="ti ti-trash"></i></button>' +
       '</div></div>';
   }).join('');
 
@@ -148,7 +161,6 @@ export function setView() {
           '<div class="kv"><span>' + b.name + '</span>' +
           '<span style="display:flex;align-items:center;gap:10px;">' +
           '<span class="v">' + fmt(b.amount) + '</span>' +
-          '<button class="btn quiet billmove" data-i="' + i + '">To wishlist</button>' +
           '<button class="iconbtn billdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
           '</span></div>').join('')
       : '<div class="empty">No bills yet.</div>') +
@@ -458,29 +470,6 @@ export function wireSet() {
       await persist();
       render();
       toast('Logged ' + fmt(target.amount) + ' · ' + target.name);
-    };
-  });
-
-  // Move a recurring bill onto the wishlist, for things that were never
-  // really bills in the first place.
-  document.querySelectorAll('.billmove').forEach(btn => {
-    btn.onclick = async () => {
-      const i = parseInt(btn.dataset.i, 10);
-      const bill = S.config.lockedBills[i];
-      if (!bill) return;
-      S.config.lockedBills.splice(i, 1);
-      S.config.wishlist = (S.config.wishlist || []).concat([{
-        name: bill.name, amount: bill.amount,
-        target: S.viewMonth, added: todayISO()
-      }]);
-      await persist();
-      render();
-      toast(bill.name + ' moved to the wishlist', async () => {
-        S.config.wishlist = S.config.wishlist.filter(w => w.name !== bill.name);
-        S.config.lockedBills.splice(i, 0, bill);
-        await persist();
-        render();
-      });
     };
   });
 
