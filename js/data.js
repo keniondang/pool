@@ -162,7 +162,9 @@ export function calc(k,forDay){
 }
 
 export async function boot(){
-  if(!DB.poolToken()){ renderNoToken(); return; }
+  // No token means a brand new visitor, not a broken one. Mint one and
+  // let them set up; the shareable link appears in Settings afterwards.
+  DB.ensureToken();
   let data;
   try{
     data = await DB.loadAll();
@@ -182,17 +184,6 @@ export async function boot(){
   await sweepClosed();
   document.getElementById('tabbar').style.display = 'flex';
   render();
-}
-
-function renderNoToken(){
-  document.getElementById('tabbar').style.display = 'none';
-  document.getElementById('app').innerHTML =
-    '<div class="wrap"><div class="eyebrow">Pool</div>' +
-    '<h1 style="margin-bottom:12px;">Open your link</h1>' +
-    '<div class="card"><div style="font-size:14px;color:var(--ink2);line-height:1.65;">' +
-    'This device has not been paired yet. Open the link that ends in ' +
-    '<code>?k=…</code> once and it will remember from then on.' +
-    '</div></div></div>';
 }
 
 function renderError(msg){

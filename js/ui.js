@@ -100,7 +100,18 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
     {
       onOpen(wrap, close) {
         wrap.querySelector('.mcancel').onclick = close;
-        wrap.querySelector('.mok').onclick = () => { close(); onYes(); };
+        wrap.querySelector('.mok').onclick = async () => {
+          close();
+          try {
+            // onYes is usually async and usually touches the network.
+            // Without this a failure is a silent no-op.
+            await onYes();
+          } catch (err) {
+            console.error('action failed', err);
+            toast('That did not go through. ' +
+                  (err && err.message ? err.message : 'Try again.'), null, 7000);
+          }
+        };
       }
     }
   );

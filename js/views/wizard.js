@@ -397,7 +397,21 @@ function wire() {
     document.querySelectorAll('.planrm').forEach(b => {
       b.onclick = () => { d.planned.splice(parseInt(b.dataset.i, 10), 1); renderWizard(); };
     });
-    $('done').onclick = () => finish();
+    $('done').onclick = async () => {
+      const btn = $('done');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        await finish();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = S.wiz.mode === 'edit' ? 'Save' : 'Start';
+        const e = $('e4');
+        e.textContent = 'Could not save: ' + (err && err.message ? err.message : err);
+        e.classList.add('show');
+        console.error('setup failed', err);
+      }
+    };
   }
 
   document.querySelectorAll('.rmrow').forEach(btn => {
@@ -439,7 +453,14 @@ async function finish() {
   syncStep();
 
   const p = previewDaily(d);
-  if (p.pool <= 0) { $('e4').classList.add('show'); return; }
+  if (p.pool <= 0) {
+    $('e4').textContent = 'That does not leave anything to live on. Lower something.';
+    $('e4').classList.add('show');
+    const btn = $('done');
+    btn.disabled = false;
+    btn.textContent = S.wiz.mode === 'edit' ? 'Save' : 'Start';
+    return;
+  }
   $('e4').classList.remove('show');
 
   const creating = S.wiz.mode !== 'edit';

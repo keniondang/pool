@@ -29,6 +29,24 @@ export function poolToken() {
   }
 }
 
+/** A first-time visitor has no link to open, so mint one. Without this
+ *  the pool insert carries a null token and RLS refuses it, which looks
+ *  from the outside like a dead Start button. */
+export function ensureToken() {
+  let t = poolToken();
+  if (t) return t;
+  const bytes = new Uint8Array(24);
+  (crypto || window.crypto).getRandomValues(bytes);
+  t = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {}
+  return t;
+}
+
+/** The link to open on the other phone. The token in it is the password. */
+export function shareLink() {
+  return location.origin + location.pathname + '?k=' + (poolToken() || '');
+}
+
 export function clearToken() {
   try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
 }
@@ -242,7 +260,7 @@ export async function createPool(cfg) {
       savings_target: cfg.savingsTarget,
       savings_balance: cfg.startingSavings || 0,
       start_month: cfg.startMonth,
-      access_token: poolToken()
+      access_token: ensureToken()
     }
   });
   return rows && rows[0] ? rows[0].id : null;

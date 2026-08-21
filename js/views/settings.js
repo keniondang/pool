@@ -180,6 +180,21 @@ function earlyRows(k) {
     'It cannot be unticked once the money is spendable.</div></div>';
 }
 
+/** The other phone opens this once. The token in it is the password, so
+ *  it is hidden until you ask for it. */
+function shareCard() {
+  return '<div class="card"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-link"></i>Share with her</div></div>' +
+    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">' +
+    'Send this link. She opens it once on her phone and you both see the same pool. ' +
+    'Anyone with the link has full access, so keep it out of screenshots.</div>' +
+    '<div class="linkbox" id="linkBox" style="display:none;"></div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<button class="btn outline" id="showLink" style="flex:1;">Show link</button>' +
+    '<button class="btn outline" id="copyLink" style="flex:1;">Copy</button>' +
+    '</div></div>';
+}
+
 /** Testing only. Moves the app's idea of today so a month rollover can be
  *  seen without waiting for one. Delete this card when you are done. */
 function testCard() {
@@ -261,6 +276,7 @@ export function setView() {
     '<label class="flabel">Balance</label>' +
     '<input id="sBal" class="money" type="text" value="' + fmt(S.meta.savingsBalance) + '" /></div>' +
 
+    shareCard() +
     testCard() +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-download"></i>Backup</div></div>' +
@@ -443,6 +459,26 @@ export function wireSet() {
             ' added to this pool');
     };
   });
+
+  const sl = $('showLink');
+  if (sl) sl.onclick = () => {
+    const box = $('linkBox');
+    box.textContent = DB.shareLink();
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+  };
+  const cl = $('copyLink');
+  if (cl) cl.onclick = async () => {
+    const link = DB.shareLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Link copied');
+    } catch (e) {
+      const box = $('linkBox');
+      box.textContent = link;
+      box.style.display = 'block';
+      toast('Copy it from above');
+    }
+  };
 
   const jn = $('jumpNext');
   if (jn) jn.onclick = () => {
