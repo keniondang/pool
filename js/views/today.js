@@ -2,6 +2,8 @@ import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey,
          catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
 import { md, calc, saveMonth, ensureDay, shiftDay } from '../data.js';
+import { sSet } from '../storage.js';
+import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast } from '../ui.js';
 
@@ -51,6 +53,7 @@ export function todayView(){
   '<div class="catrow">'+CATS.map(ct=>'<button class="catchip'+(S.selCat===ct.id?' on':'')+'" data-c="'+ct.id+
     '" style="--cc:'+ct.c+';--ct:'+ct.t+'"><i class="ti '+ct.icon+'"></i>'+ct.label+'</button>').join('')+'</div>'+
 
+  '<div id="repeatHolder">'+repeatBtn(S.selCat)+'</div>'+
   '<div class="steplabel">How much</div>'+
   '<div class="amtbox" id="amtBox" style="border-color:'+catColor(S.selCat)+'"><input id="amt" class="money" type="text" placeholder="0" />'+
   '<span class="cur">VND</span><button class="clr" id="clrAmt"><i class="ti ti-x"></i></button></div>'+
@@ -69,13 +72,6 @@ export function todayView(){
     '<button class="iconbtn del" data-id="'+e.id+'"><i class="ti ti-trash"></i></button></div>').join('')
     :'<div class="empty">Nothing yet. Pick a category, tap an amount, hit Log.</div>')+
   '</div>'+
-
-  '<div class="card flush"><div class="stats">'+
-  '<div class="stat"><div class="l">Spent this month</div><div class="v">'+fmt(c.spent)+'</div></div>'+
-  '<div class="stat"><div class="l">Daily average'+(c.elapsed>0?' &middot; '+c.elapsed+'d':'')+'</div><div class="v">'+fmt(c.avg)+'</div></div>'+
-  '<div class="stat"><div class="l">Under days</div><div class="v sage">'+c.under+'</div></div>'+
-  '<div class="stat"><div class="l">Big days</div><div class="v brass">'+c.big+'</div></div>'+
-  '</div></div>'+
 
   '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-shield-check"></i>Savings</div></div>'+
   '<div class="kv" style="padding-top:0;"><span>Balance</span><span class="v serif" style="font-size:17px;">'+fmt(S.meta.savingsBalance)+'</span></div>'+
@@ -97,7 +93,10 @@ export function wireToday(){
     const lb=$('logBtn');
     if(lb){lb.style.background=catColor(S.selCat);lb.textContent='Log '+catLabel(S.selCat).toLowerCase();}
     const bx=$('amtBox'); if(bx) bx.style.borderColor=catColor(S.selCat);
+    const holder=$('repeatHolder');
+    if(holder){ holder.innerHTML=repeatBtn(S.selCat); wireRepeat(); paintIcons(); }
   });
+  wireRepeat();
   if($('clrAmt'))$('clrAmt').onclick=()=>{$('amt').value='';$('amt').focus();};
   document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{
     const cur=money($('amt').value);
@@ -107,11 +106,32 @@ export function wireToday(){
     const raw=money($('amt').value);if(raw<=0)return;
     md(k).entries.push({id:'e'+Date.now(),amount:raw,note:$('note').value.trim(),cat:S.selCat,
       date:iso(y,m,dnum),snap:Math.round(c.perDay)});
+    S.meta.lastAmounts = S.meta.lastAmounts || {};
+    S.meta.lastAmounts[S.selCat] = raw;
+    await sSet('meta', S.meta);
     await saveMonth(k);render();
   };
   // The one place a modal earns its interruption: this permanently moves
   // money out of the cushion, so it states the consequence before asking.
   $('drawT').onclick=()=>openDraw(k, y, m, dnum);
+}
+
+/** Parking is 3.000 nearly every day. One tap beats three. */
+function wireRepeat(){
+  const b=document.getElementById('repeatBtn');
+  if(!b) return;
+  b.onclick=()=>{
+    const amt=document.getElementById('amt');
+    amt.value=parseInt(b.dataset.v,10).toLocaleString('de-DE');
+  };
+}
+
+function repeatBtn(cat){
+  const last = (S.meta.lastAmounts||{})[cat];
+  if(!last) return '';
+  return '<button class="repeat" id="repeatBtn" data-v="'+last+'">'+
+    '<i class="ti ti-repeat"></i>Same as last '+catLabel(cat).toLowerCase()+
+    ' · '+fmt(last)+'</button>';
 }
 
 function openDraw(k, y, m, dnum){

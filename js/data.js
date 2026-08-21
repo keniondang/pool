@@ -7,10 +7,18 @@ import { renderWizard } from './views/wizard.js';
 export function md(k){ if(!S.months[k]) S.months[k]={entries:[],draws:[]}; return S.months[k]; }
 export async function saveMonth(k){ await sSet('month:'+k,S.months[k]); }
 
+/** One-off costs you know are coming. Set aside like a bill, so the
+ *  money is already there when the day arrives instead of cratering
+ *  the daily number on the spot. */
+export function plannedFor(k){
+  return (S.config.planned||[]).filter(p=>p.due && p.due.slice(0,7)===k);
+}
+
 export function calc(k,forDay){
   const {y,m}=parseKey(k), days=dim(y,m), d=md(k);
   const locked=S.config.lockedBills.reduce((s,b)=>s+b.amount,0);
-  const pool=S.config.income-locked-S.config.savingsTarget;
+  const planned=plannedFor(k).reduce((s,p)=>s+p.amount,0);
+  const pool=S.config.income-locked-S.config.savingsTarget-planned;
   const spent=d.entries.reduce((s,e)=>s+e.amount,0);
   const drawn=d.draws.reduce((s,x)=>s+x.amount,0);
   const real=new Date();
@@ -33,7 +41,7 @@ export function calc(k,forDay){
   const avg=elapsed>0?spent/elapsed:0;
   let big=0,under=0;
   Object.keys(byDay).forEach(dd=>{byDay[dd].total>byDay[dd].snap?big++:under++;});
-  return{y,m,days,ref,locked,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,avg,byDay,big,under,isNow,today};
+  return{y,m,days,ref,locked,planned,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,avg,byDay,big,under,isNow,today};
 }
 
 export async function boot(){

@@ -7,12 +7,14 @@ import { toast } from './ui.js';
 import { todayView, wireToday } from './views/today.js';
 import { calView, wireCal } from './views/calendar.js';
 import { setView, wireSet } from './views/settings.js';
+import { trendsView, wireTrends } from './views/trends.js';
 
 export function render(){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.s===S.screen));
   const a=document.getElementById('app');
   if(S.screen==='today'){a.innerHTML=todayView();wireToday();}
   if(S.screen==='calendar'){a.innerHTML=calView();wireCal();}
+  if(S.screen==='trends'){a.innerHTML=trendsView();wireTrends();}
   if(S.screen==='settings'){a.innerHTML=setView();wireSet();}
   wireMoney();
   paintIcons();

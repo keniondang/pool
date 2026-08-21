@@ -1,20 +1,23 @@
 import { S } from '../state.js';
 import { sGet, sSet, sList } from '../storage.js';
-import { fmt, money, wireMoney } from '../utils.js';
+import { fmt, money, wireMoney, parseKey, MONTHS } from '../utils.js';
 import { paintIcons } from '../icons.js';
-import { calc, boot } from '../data.js';
+import { calc, boot, plannedFor, md, saveMonth } from '../data.js';
 import { render } from '../app.js';
 import { renderWizard } from './wizard.js';
 import { toast, confirmDialog, formModal } from '../ui.js';
 
 /** Bills plus savings must leave something to live on. The only invalid state. */
-function validate({ income, savingsTarget, bills }) {
+function validate({ income, savingsTarget, bills, planned }) {
   const inc = income ?? S.config.income;
   const sav = savingsTarget ?? S.config.savingsTarget;
   const bl = bills ?? S.config.lockedBills;
   const locked = bl.reduce((s, b) => s + b.amount, 0);
-  if (inc - locked - sav <= 0) {
-    return `Bills (${fmt(locked)}) and savings (${fmt(sav)}) would use up everything you earn.`;
+  const plan = planned ?? plannedFor(S.viewMonth).reduce((s, p) => s + p.amount, 0);
+  if (inc - locked - sav - plan <= 0) {
+    return `Bills (${fmt(locked)}), savings (${fmt(sav)})` +
+      (plan ? ` and what you have set aside (${fmt(plan)})` : '') +
+      ' would use up everything you earn.';
   }
   return null;
 }
@@ -25,6 +28,31 @@ function plural(n, one, many) {
 
 async function persist() {
   await sSet('config', S.config);
+}
+
+function plannedCard() {
+  const list = (S.config.planned || []).slice().sort((a, b) => a.due.localeCompare(b.due));
+  const total = plannedFor(S.viewMonth).reduce((s, p) => s + p.amount, 0);
+  return '<div class="card"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-calendar-plus"></i>Coming up</div>' +
+    '<span style="font-variant-numeric:tabular-nums;">' + fmt(total) + '</span></div>' +
+    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:10px;">' +
+    'One-off costs you already know about. Set them aside now and the money is ' +
+    'there on the day, instead of the daily number cratering when it lands.</div>' +
+    (list.length
+      ? list.map((p, i) => {
+          const { m } = parseKey(p.due.slice(0, 7));
+          const day = p.due.slice(8, 10);
+          return '<div class="kv"><span>' + p.name +
+            '<span style="color:var(--ink3);font-size:12px;"> · ' + day + ' ' + MONTHS[m].slice(0, 3) + '</span></span>' +
+            '<span style="display:flex;align-items:center;gap:8px;">' +
+            '<span class="v">' + fmt(p.amount) + '</span>' +
+            '<button class="btn quiet plandone" data-i="' + i + '">Spent</button>' +
+            '<button class="iconbtn plandel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
+            '</span></div>';
+        }).join('')
+      : '<div class="empty">Nothing set aside.</div>') +
+    '<button class="addbill" id="addPlanned"><i class="ti ti-plus"></i>Set money aside</button></div>';
 }
 
 export function setView() {
@@ -49,6 +77,8 @@ export function setView() {
           '</span></div>').join('')
       : '<div class="empty">No bills yet.</div>') +
     '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button></div>' +
+
+    plannedCard() +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-shield-check"></i>Savings</div></div>' +
     '<label class="flabel" style="margin-top:0;">Target each month</label>' +
@@ -171,6 +201,78 @@ export function wireSet() {
       }
     });
   };
+
+  // ---- planned one-off spends ----
+  const addPlanned = $('addPlanned');
+  if (addPlanned) {
+    addPlanned.onclick = () => {
+      const { y, m } = parseKey(S.viewMonth);
+      const dflt = S.viewMonth + '-' + String(Math.min(28, (S.curDay || 1) + 7)).padStart(2, '0');
+      formModal({
+        title: 'Set money aside',
+        fields: [
+          { id: 'name', label: 'What for', placeholder: 'Wedding gift' },
+          { id: 'amount', label: 'How much', placeholder: '0', money: true },
+          { id: 'due', label: 'When (YYYY-MM-DD)', value: dflt }
+        ],
+        submitLabel: 'Set aside',
+        onSubmit: ({ name, amount, due }) => {
+          if (!name) return 'Give it a name.';
+          if (amount <= 0) return 'Enter an amount above zero.';
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return 'Date needs to look like 2026-09-22.';
+          const thisMonth = due.slice(0, 7) === S.viewMonth ? amount : 0;
+          const cur = plannedFor(S.viewMonth).reduce((s, p) => s + p.amount, 0);
+          const err = validate({ planned: cur + thisMonth });
+          if (err) return err;
+          S.config.planned = (S.config.planned || []).concat([{ name, amount, due }]);
+          persist().then(() => {
+            render();
+            toast('Set aside ' + fmt(amount) + ' for ' + name);
+          });
+          return null;
+        }
+      });
+    };
+  }
+
+  document.querySelectorAll('.plandel').forEach(btn => {
+    btn.onclick = async () => {
+      const i = parseInt(btn.dataset.i, 10);
+      const list = (S.config.planned || []).slice().sort((a, b) => a.due.localeCompare(b.due));
+      const target = list[i];
+      if (!target) return;
+      S.config.planned = S.config.planned.filter(p => p !== target);
+      await persist();
+      render();
+      toast('Removed ' + target.name, async () => {
+        S.config.planned.push(target);
+        await persist();
+        render();
+      });
+    };
+  });
+
+  // "Spent" turns the set-aside money into a real entry, so it stops
+  // being subtracted twice.
+  document.querySelectorAll('.plandone').forEach(btn => {
+    btn.onclick = async () => {
+      const i = parseInt(btn.dataset.i, 10);
+      const list = (S.config.planned || []).slice().sort((a, b) => a.due.localeCompare(b.due));
+      const target = list[i];
+      if (!target) return;
+      const k = target.due.slice(0, 7);
+      const before = calc(k, S.curDay);
+      md(k).entries.push({
+        id: 'e' + Date.now(), amount: target.amount, note: target.name,
+        cat: 'others', date: target.due, snap: Math.round(before.perDay)
+      });
+      S.config.planned = S.config.planned.filter(p => p !== target);
+      await saveMonth(k);
+      await persist();
+      render();
+      toast('Logged ' + fmt(target.amount) + ' · ' + target.name);
+    };
+  });
 
   // ---- backup ----
   $('expBtn').onclick = async () => {
