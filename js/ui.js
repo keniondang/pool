@@ -109,19 +109,30 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
 // ---------------------------------------------------------------- form modal
 
 /**
- * fields: [{ id, label, placeholder, money: bool, value }]
+ * fields: [{ id, label, placeholder, money: bool, value,
+ *            select: [{ value, label }] }]
  * onSubmit receives an object keyed by field id. Money fields arrive as ints.
  * Return a string to show it as an error and keep the modal open.
  */
-export function formModal({ title, fields, submitLabel = 'Add', onSubmit }) {
-  const inputs = fields.map(f =>
-    '<label class="flabel" for="mf-' + f.id + '">' + f.label + '</label>' +
-    '<input id="mf-' + f.id + '" class="' + (f.money ? 'money' : '') + '" type="text" ' +
-    'placeholder="' + (f.placeholder || '') + '" value="' + (f.value || '') + '" />'
-  ).join('');
+export function formModal({ title, body, fields, submitLabel = 'Add', onSubmit }) {
+  const inputs = fields.map(f => {
+    const label = '<label class="flabel" for="mf-' + f.id + '">' + f.label + '</label>';
+    if (f.select) {
+      return label + '<select id="mf-' + f.id + '">' +
+        f.select.map(o =>
+          '<option value="' + o.value + '"' +
+          (String(o.value) === String(f.value) ? ' selected' : '') + '>' +
+          o.label + '</option>').join('') +
+        '</select>';
+    }
+    return label +
+      '<input id="mf-' + f.id + '" class="' + (f.money ? 'money' : '') + '" type="text" ' +
+      'placeholder="' + (f.placeholder || '') + '" value="' + (f.value || '') + '" />';
+  }).join('');
 
   openModal(
     '<div class="modal-title">' + title + '</div>' +
+    (body ? '<div class="modal-body" style="margin-bottom:4px;">' + body + '</div>' : '') +
     '<div class="modal-form">' + inputs + '</div>' +
     '<div class="modal-err" id="modal-err"></div>' +
     '<div class="modal-actions">' +

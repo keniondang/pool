@@ -30,6 +30,81 @@ async function persist() {
   await sSet('config', S.config);
 }
 
+const COOL_DAYS = 30;
+
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+         '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function daysSince(iso) {
+  const then = new Date(iso + 'T00:00:00');
+  const now = new Date(todayISO() + 'T00:00:00');
+  return Math.max(0, Math.round((now - then) / 86400000));
+}
+
+/** Months you can aim a want at: this one and the next eleven. */
+function monthOptions() {
+  const out = [];
+  const start = parseKey(S.viewMonth);
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(start.y, start.m + i, 1);
+    const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    out.push({ value: k, label: MONTHS[d.getMonth()] + ' ' + d.getFullYear() });
+  }
+  return out;
+}
+
+/**
+ * Wants cost nothing until you decide they are real. Promoting one to
+ * Coming up is the moment of commitment, and that is when the daily
+ * number moves. Prices show in days of your allowance because 450.000 is
+ * abstract and "1.3 days" is not.
+ */
+function wishlistCard() {
+  const c = calc(S.viewMonth, S.curDay);
+  const per = c.perDay || 1;
+  const list = (S.config.wishlist || []).slice()
+    .sort((a, b) => daysSince(b.added) - daysSince(a.added));
+
+  const rows = list.map((w, i) => {
+    const waited = daysSince(w.added);
+    const ready = waited >= COOL_DAYS;
+    const left = Math.max(0, COOL_DAYS - waited);
+    const days = (w.amount / per).toFixed(1);
+    const { m, y } = parseKey(w.target);
+    const pct = Math.min(100, (waited / COOL_DAYS) * 100);
+
+    return '<div class="wish' + (ready ? ' ready' : '') + '">' +
+      '<div class="wish-top">' +
+        '<span class="wish-name">' + w.name + '</span>' +
+        '<span class="wish-amt">' + fmt(w.amount) + '</span>' +
+      '</div>' +
+      '<div class="wish-sub">' + days + ' days of your allowance · aiming for ' +
+        MONTHS[m].slice(0, 3) + ' ' + String(y).slice(2) + '</div>' +
+      (ready
+        ? '<div class="wish-status ready">Waited ' + waited + ' days. Still want it?</div>'
+        : '<div class="wish-wait"><div class="wish-bar"><span style="width:' + pct + '%"></span></div>' +
+          '<span>' + left + ' more day' + (left === 1 ? '' : 's') + '</span></div>') +
+      '<div class="wish-acts">' +
+        '<button class="btn quiet wishplan" data-i="' + i + '">Set aside</button>' +
+        '<button class="btn quiet wishbuy" data-i="' + i + '">Bought it</button>' +
+        '<button class="iconbtn wishdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
+      '</div></div>';
+  }).join('');
+
+  return '<div class="card"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-bookmark"></i>Wishlist</div>' +
+    '<span style="font-size:12px;color:var(--ink3);">' + list.length +
+    ' item' + (list.length === 1 ? '' : 's') + '</span></div>' +
+    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:12px;">' +
+    'Things you might buy. These do not touch your daily number. After ' + COOL_DAYS +
+    ' days each one asks whether you still want it, and most of the time you will not.</div>' +
+    (list.length ? rows : '<div class="empty">Nothing on the list.</div>') +
+    '<button class="addbill" id="addWish"><i class="ti ti-plus"></i>Add something</button></div>';
+}
+
 function plannedCard() {
   const list = (S.config.planned || []).slice().sort((a, b) => a.due.localeCompare(b.due));
   const total = plannedFor(S.viewMonth).reduce((s, p) => s + p.amount, 0);
@@ -73,12 +148,14 @@ export function setView() {
           '<div class="kv"><span>' + b.name + '</span>' +
           '<span style="display:flex;align-items:center;gap:10px;">' +
           '<span class="v">' + fmt(b.amount) + '</span>' +
+          '<button class="btn quiet billmove" data-i="' + i + '">To wishlist</button>' +
           '<button class="iconbtn billdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
           '</span></div>').join('')
       : '<div class="empty">No bills yet.</div>') +
     '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button></div>' +
 
     plannedCard() +
+    wishlistCard() +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-shield-check"></i>Savings</div></div>' +
     '<label class="flabel" style="margin-top:0;">Target each month</label>' +
@@ -271,6 +348,139 @@ export function wireSet() {
       await persist();
       render();
       toast('Logged ' + fmt(target.amount) + ' · ' + target.name);
+    };
+  });
+
+  // ---- wishlist ----
+  const wishSorted = () => (S.config.wishlist || []).slice()
+    .sort((a, b) => daysSince(b.added) - daysSince(a.added));
+
+  const addWish = $('addWish');
+  if (addWish) {
+    addWish.onclick = () => {
+      formModal({
+        title: 'Add to wishlist',
+        body: 'This will not change your daily number. It sits here for ' +
+              COOL_DAYS + ' days first.',
+        fields: [
+          { id: 'name', label: 'What is it', placeholder: 'Running shoes' },
+          { id: 'amount', label: 'Roughly how much', placeholder: '0', money: true },
+          { id: 'target', label: 'Aiming for', select: monthOptions(), value: S.viewMonth }
+        ],
+        submitLabel: 'Add',
+        onSubmit: ({ name, amount, target }) => {
+          if (!name) return 'Give it a name.';
+          if (amount <= 0) return 'Enter an amount above zero.';
+          S.config.wishlist = (S.config.wishlist || [])
+            .concat([{ name, amount, target, added: todayISO() }]);
+          persist().then(() => {
+            const per = calc(S.viewMonth, S.curDay).perDay || 1;
+            render();
+            toast(name + ' · ' + (amount / per).toFixed(1) + ' days of your allowance');
+          });
+          return null;
+        }
+      });
+    };
+  }
+
+  document.querySelectorAll('.wishdel').forEach(btn => {
+    btn.onclick = async () => {
+      const target = wishSorted()[parseInt(btn.dataset.i, 10)];
+      if (!target) return;
+      S.config.wishlist = S.config.wishlist.filter(w => w !== target);
+      await persist();
+      render();
+      toast('Removed ' + target.name, async () => {
+        S.config.wishlist.push(target);
+        await persist();
+        render();
+      });
+    };
+  });
+
+  // Promoting is the moment of commitment, so it shows the cost first.
+  document.querySelectorAll('.wishplan').forEach(btn => {
+    btn.onclick = () => {
+      const target = wishSorted()[parseInt(btn.dataset.i, 10)];
+      if (!target) return;
+      const sameMonth = target.target === S.viewMonth;
+      const before = calc(S.viewMonth, S.curDay);
+      const cur = plannedFor(S.viewMonth).reduce((s, p) => s + p.amount, 0);
+      const err = sameMonth ? validate({ planned: cur + target.amount }) : null;
+      const { m, y } = parseKey(target.target);
+
+      const after = sameMonth
+        ? Math.round((before.available - target.amount) / Math.max(1, before.daysLeft))
+        : before.perDay;
+
+      confirmDialog({
+        title: 'Set aside ' + fmt(target.amount) + '?',
+        body: err
+          ? err
+          : (sameMonth
+              ? 'Your daily number drops from ' + fmt(before.perDay) + ' to <b>' +
+                fmt(after) + '</b> for the ' + before.daysLeft + ' days left, and the money ' +
+                'is there when you buy it. '
+              : 'It comes out of ' + MONTHS[m] + ' ' + y +
+                ', so this month is unaffected.'
+            ) +
+          (err ? '' : '<br><br>Rent, bills and savings stay covered either way.'),
+        confirmLabel: err ? 'OK' : 'Set it aside',
+        onYes: async () => {
+          if (err) return;
+          S.config.planned = (S.config.planned || []).concat([{
+            name: target.name, amount: target.amount, due: target.target + '-28'
+          }]);
+          S.config.wishlist = S.config.wishlist.filter(w => w !== target);
+          await persist();
+          render();
+          toast('Moved ' + target.name + ' to Coming up');
+        }
+      });
+    };
+  });
+
+  document.querySelectorAll('.wishbuy').forEach(btn => {
+    btn.onclick = async () => {
+      const target = wishSorted()[parseInt(btn.dataset.i, 10)];
+      if (!target) return;
+      const k = S.viewMonth;
+      const before = calc(k, S.curDay);
+      const { y, m } = parseKey(k);
+      const day = String(S.curDay || 1).padStart(2, '0');
+      md(k).entries.push({
+        id: 'e' + Date.now(), amount: target.amount, note: target.name,
+        cat: 'shopping', date: k + '-' + day, snap: Math.round(before.perDay)
+      });
+      S.config.wishlist = S.config.wishlist.filter(w => w !== target);
+      await saveMonth(k);
+      await persist();
+      render();
+      toast('Logged ' + fmt(target.amount) + ' · ' + target.name);
+    };
+  });
+
+  // Move a recurring bill onto the wishlist, for things that were never
+  // really bills in the first place.
+  document.querySelectorAll('.billmove').forEach(btn => {
+    btn.onclick = async () => {
+      const i = parseInt(btn.dataset.i, 10);
+      const bill = S.config.lockedBills[i];
+      if (!bill) return;
+      S.config.lockedBills.splice(i, 1);
+      S.config.wishlist = (S.config.wishlist || []).concat([{
+        name: bill.name, amount: bill.amount,
+        target: S.viewMonth, added: todayISO()
+      }]);
+      await persist();
+      render();
+      toast(bill.name + ' moved to the wishlist', async () => {
+        S.config.wishlist = S.config.wishlist.filter(w => w.name !== bill.name);
+        S.config.lockedBills.splice(i, 0, bill);
+        await persist();
+        render();
+      });
     };
   });
 
