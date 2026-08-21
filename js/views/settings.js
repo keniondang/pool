@@ -1,5 +1,5 @@
 import { S } from '../state.js';
-import { fmt, money, wireMoney, parseKey, MONTHS, MSHORT } from '../utils.js';
+import { fmt, money, wireMoney, parseKey, MONTHS, MSHORT, now, simDate, setSim, key, nowKey } from '../utils.js';
 import { paintIcons } from '../icons.js';
 import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta,
          monthState, saveMonthState, incomePending, billsUnpaid, savingsFor,
@@ -34,7 +34,7 @@ async function persist() {
 const COOL_DAYS = 30;
 
 function todayISO() {
-  const d = new Date();
+  const d = now();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
          '-' + String(d.getDate()).padStart(2, '0');
 }
@@ -151,44 +151,54 @@ function incomeCard(c) {
     '<div class="field-err" id="incomeErr" style="display:none;"></div></div>';
 }
 
-/** The escape hatch. Without it, fixing a drifted balance would mean
- *  erasing every entry you have logged. */
-/** Salary that lands before the month it belongs to. It never touches
- *  this month's pool, so this is a note to each other rather than a
- *  calculation. */
+/** Next month's salary that lands during this one. It joins this pool
+ *  straight away and is excluded from next month, so nothing is counted
+ *  twice. Locked once ticked, because the money is already spendable. */
 function earlyRows(k) {
   if (isLocked(k)) return '';
   const { y, m } = parseKey(k);
   const n = new Date(y, m + 1, 1);
-  const nk = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
+  const nk = key(n.getFullYear(), n.getMonth());
   const nst = monthState(nk);
   const list = S.config.incomeSources || [];
   if (!list.length) return '';
   return '<div class="earlybox"><div class="earlyhead">Already arrived for ' +
     MONTHS[n.getMonth()] + '</div>' +
     list.map(src => {
-      const on = !!nst.incomeEarly[src.id];
-      return '<button class="paidrow early" data-early="' + src.id + '">' +
+      const on = nst.incomeEarly[src.id];
+      return '<button class="paidrow early' + (on ? ' locked' : '') + '" data-early="' +
+        src.id + '"' + (on ? ' disabled' : '') + '>' +
         '<span class="tick' + (on ? ' on' : '') + '">' +
         (on ? '<i class="ti ti-check"></i>' : '') + '</span>' +
-        '<span class="srcname">' + src.name + '</span>' +
+        '<span class="srcname">' + src.name +
+        (on ? '<span class="srcstate">in this pool since ' + on +
+              ' · locked until ' + MONTHS[n.getMonth()] + '</span>' : '') + '</span>' +
         '<span class="v">' + fmt(src.amount) + '</span></button>';
     }).join('') +
-    '<div class="fhint" style="margin-top:8px;">Tick it when next month\'s money lands ' +
-    'early. It stays out of this month\'s pool either way, this is just so you both know.</div></div>';
+    '<div class="fhint" style="margin-top:8px;">Tick it when next month\'s money lands early. ' +
+    'It joins this pool straight away and will not be counted again next month. ' +
+    'It cannot be unticked once the money is spendable.</div></div>';
 }
 
-function balanceCard() {
-  const k = S.viewMonth;
-  const st = monthState(k);
-  const { m } = parseKey(k);
-  return '<div class="card"><div class="card-head">' +
-    '<div class="lhs"><i class="ti ti-calendar-stats"></i>Money left right now</div></div>' +
-    '<input id="sOverride" class="money" type="text" ' +
-    'placeholder="leave blank to work it out" value="' +
-    (st.balanceOverride === null ? '' : fmt(st.balanceOverride)) + '" />' +
-    '<div class="fhint">Only for ' + MONTHS[m] + '. Fill this in when the app has drifted ' +
-    'from your actual account. Clears itself next month.</div></div>';
+/** Testing only. Moves the app's idea of today so a month rollover can be
+ *  seen without waiting for one. Delete this card when you are done. */
+function testCard() {
+  const sim = simDate();
+  const d = now();
+  const nxt = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  return '<div class="card" style="border-style:dashed;">' +
+    '<div class="card-head"><div class="lhs"><i class="ti ti-flask"></i>Testing</div>' +
+    (sim ? '<span style="font-size:12px;color:var(--brass);">simulated</span>' : '') + '</div>' +
+    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">' +
+    'The app currently thinks today is <b>' +
+    d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) +
+    '</b>. Jumping forward closes the current month, sweeps savings and opens a fresh pool, ' +
+    'exactly as the real rollover will.</div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<button class="btn outline" id="jumpNext" style="flex:1;">Jump to 1 ' +
+    MONTHS[nxt.getMonth()] + '</button>' +
+    (sim ? '<button class="btn outline" id="jumpReal" style="flex:1;">Back to real time</button>' : '') +
+    '</div></div>';
 }
 
 function plannedCard() {
@@ -224,7 +234,6 @@ export function setView() {
     '<span style="color:var(--ink3);">changes apply straight away</span></div></div>' +
 
     incomeCard(c) +
-    (isLocked(S.viewMonth) ? '' : balanceCard()) +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-lock"></i>Locked bills</div>' +
     '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.locked) + '</span></div>' +
@@ -251,6 +260,8 @@ export function setView() {
     '<div class="field-err" id="savErr" style="display:none;"></div>' +
     '<label class="flabel">Balance</label>' +
     '<input id="sBal" class="money" type="text" value="' + fmt(S.meta.savingsBalance) + '" /></div>' +
+
+    testCard() +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-download"></i>Backup</div></div>' +
     '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">Everything lives in this browser only. Export a file now and then so clearing your browser cannot wipe your history.</div>' +
@@ -347,14 +358,6 @@ export function wireSet() {
   };
 
   // ---- this month only ----
-  const ov = $('sOverride');
-  if (ov) ov.addEventListener('blur', async () => {
-    const raw = ov.value.trim();
-    st.balanceOverride = raw === '' ? null : money(raw);
-    await saveMonthState(k);
-    render();
-  });
-
   bindNumber('sSav', 'savErr', (v, dry, mode) => {
     if (mode === 'current') return S.config.savingsTarget;
     if (v < 0) return 'Savings cannot be negative.';
@@ -430,12 +433,26 @@ export function wireSet() {
       const nk = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
       const nst = monthState(nk);
       const id = btn.dataset.early;
-      if (nst.incomeEarly[id]) delete nst.incomeEarly[id];
-      else nst.incomeEarly[id] = new Date().toISOString().slice(0, 10);
+      // Locked once ticked: the money is in the pool and may already be spent,
+      // so unticking it would silently take spendable money away.
+      if (nst.incomeEarly[id]) return;
+      nst.incomeEarly[id] = now().toISOString().slice(0, 10);
       await saveMonthState(nk);
       render();
+      toast(fmt((S.config.incomeSources.find(x => x.id === id) || {}).amount || 0) +
+            ' added to this pool');
     };
   });
+
+  const jn = $('jumpNext');
+  if (jn) jn.onclick = () => {
+    const d = now();
+    const nxt = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    setSim(nxt.getFullYear() + '-' + String(nxt.getMonth() + 1).padStart(2, '0') + '-01');
+    location.reload();
+  };
+  const jr = $('jumpReal');
+  if (jr) jr.onclick = () => { setSim(null); location.reload(); };
 
   // ---- planned one-off spends ----
   const addPlanned = $('addPlanned');
@@ -621,12 +638,12 @@ export function wireSet() {
   $('expBtn').onclick = async () => {
     const dump = { config: S.config, meta: S.meta, months: S.months };
     const blob = new Blob(
-      [JSON.stringify({ v: 2, exported: new Date().toISOString(), data: dump }, null, 2)],
+      [JSON.stringify({ v: 2, exported: now().toISOString(), data: dump }, null, 2)],
       { type: 'application/json' }
     );
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'pool-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = 'pool-backup-' + now().toISOString().slice(0, 10) + '.json';
     a.click();
     URL.revokeObjectURL(a.href);
     toast('Backup downloaded');

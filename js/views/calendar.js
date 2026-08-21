@@ -1,12 +1,11 @@
 import { S } from '../state.js';
-import { MONTHS, DOW, CATS, fmt, short, parseKey, key, nowKey, dim, firstDow,
-         catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
+import { MONTHS, DOW, CATS, fmt, short, parseKey, key, nowKey, dim, firstDow, catColor, catTint, catIcon, catLabel, catOf, now } from '../utils.js';
 import { md, calc, isLocked } from '../data.js';
 import { render } from '../app.js';
 
 export function calView(){
   const k=S.viewMonth,c=calc(k,S.curDay),{y,m}=parseKey(k);
-  const off=firstDow(y,m),real=new Date();
+  const off=firstDow(y,m),real=now();
   const todayN=(nowKey()===k)?real.getDate():-1;
   let cells='';
   for(let i=0;i<off;i++)cells+='<div class="cell blank"></div>';

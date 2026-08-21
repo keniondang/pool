@@ -110,7 +110,8 @@ export async function loadAll() {
       incomeReceived: st.income_received || {},
       billsPaid: st.bills_paid || {},
       savingsDone: !!st.savings_done,
-      incomeEarly: st.income_early || {}
+      incomeEarly: st.income_early || {},
+      startDay: Number(st.start_day || 1)
     };
   });
 
@@ -284,6 +285,7 @@ export async function saveMonthState(poolId, cycleKey, st) {
       bills_paid: st.billsPaid || {},
       savings_done: !!st.savingsDone,
       income_early: st.incomeEarly || {},
+      start_day: st.startDay || 1,
       updated_at: new Date().toISOString()
     }
   });

@@ -537,3 +537,7 @@ input.invalid{ border-color:#C4795E !important; }
   padding:11px 6px; color:var(--ink2); appearance:none; text-align:center;
 }
 .billrow .bt:focus{ outline:none; border-color:var(--sage); }
+
+.paidrow.locked{ cursor:default; opacity:1; }
+.paidrow.locked .srcname{ color:var(--ink); }
+.paidrow:disabled{ opacity:1; }

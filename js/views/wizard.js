@@ -1,6 +1,6 @@
 import { S } from '../state.js';
 import * as DB from '../db.js';
-import { MONTHS, MSHORT, fmt, money, key, nowKey, parseKey, dim, wireMoney } from '../utils.js';
+import { MONTHS, MSHORT, fmt, money, key, nowKey, parseKey, dim, wireMoney, now } from '../utils.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { monthState, saveMonthState } from '../data.js';
@@ -71,12 +71,12 @@ export function renderWizard(mode) {
 // ---------------------------------------------------------------- step 1
 
 function midMonth(d) {
-  return d.startMonth === nowKey() && new Date().getDate() > 1;
+  return d.startMonth === nowKey() && now().getDate() > 1;
 }
 
 function step1(d) {
   const y = S.wiz.year;
-  const today = new Date();
+  const today = now();
   const dayNow = today.getDate();
   const { m } = parseKey(d.startMonth);
 
@@ -269,7 +269,7 @@ function previewDaily(d) {
   const { y, m } = parseKey(d.startMonth);
   const days = dim(y, m);
   const isNow = d.startMonth === nowKey();
-  const refDay = isNow ? new Date().getDate() : 1;
+  const refDay = isNow ? now().getDate() : 1;
   const daysLeft = days - refDay + 1;
 
   const bills = d.lockedBills.reduce((s, b) => s + b.amount * (b.times || 1), 0);
@@ -476,6 +476,8 @@ async function finish() {
   const k = d.startMonth;
   const st = monthState(k);
   st.balanceOverride = (midMonth(d) && d.useBalance) ? d.balance : null;
+  // Starting on the 21st means this cycle is 11 days, not 31.
+  st.startDay = (midMonth(d) && d.useBalance) ? now().getDate() : 1;
   st.savingsOverride = midMonth(d) ? d.savingsThisMonth : null;
   st.billsPaid = {};
   if (midMonth(d) && d.useBalance && d.billsPaid) {

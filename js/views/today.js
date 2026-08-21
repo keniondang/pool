@@ -1,6 +1,5 @@
 import { S } from '../state.js';
-import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey,
-         catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
+import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey, catColor, catTint, catIcon, catLabel, catOf, now } from '../utils.js';
 import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor,
          monthState, saveMonthState, incomePending, savingsFor, isLocked } from '../data.js';
 import { paintIcons } from '../icons.js';
@@ -17,17 +16,20 @@ let autoOpened = false;
  *  Positive means over pace. The divisor is the daily number you
  *  started the month with, so it reads in the same unit as everything else. */
 function pace(c) {
-  if (!c.pool || !c.days) return 0;
-  return (c.spent / (c.pool / c.days)) - c.ref;
+  if (!c.pool || !c.cycleDays) return 0;
+  const elapsed = c.ref - c.cycleStart + 1;
+  return (c.spent / (c.pool / c.cycleDays)) - elapsed;
 }
 
 function paceLine(c, k) {
   const p = pace(c);
   const pending = incomePending(k);
   const spentPct = Math.min(100, Math.max(0, c.spent / c.pool * 100));
-  const monthPct = Math.min(100, c.ref / c.days * 100);
+  const elapsed = c.ref - c.cycleStart + 1;
+  const monthPct = Math.min(100, elapsed / c.cycleDays * 100);
   const facts = Math.round(spentPct) + '% of the pool gone, ' +
-                Math.round(monthPct) + '% through the month. ';
+                Math.round(monthPct) + '% through ' +
+                (c.cycleStart > 1 ? 'your ' + c.cycleDays + ' days' : 'the month') + '. ';
 
   if (c.available <= 0 && pending.length) {
     // Not spent, just not arrived. Different problem, different sentence.
@@ -127,7 +129,7 @@ function ordinal(n) {
 
 function daysSince(isoDate) {
   const then = new Date(isoDate + 'T00:00:00');
-  const now = new Date();
+  const now = now();
   now.setHours(0, 0, 0, 0);
   return Math.max(0, Math.round((now - then) / 86400000));
 }
@@ -141,7 +143,7 @@ export function todayView() {
   // The hero always speaks for the real day. Walking back to yesterday
   // must not change what is safe to spend now.
   const c = calc(k);
-  const real = new Date();
+  const real = now();
   const isCurrent = nowKey() === k;
 
   const dnum = S.curDay;
@@ -223,7 +225,8 @@ export function todayView() {
         '<div><span class="l">' + (over ? 'Over by' : 'To go') + '</span>' +
         '<span class="v">' + fmt(Math.abs(c.perDay - todayTotal)) + '</span></div>' +
       '</div>' +
-      '<div class="mb-head"><span>Month spent</span><span>day ' + c.ref + ' of ' + c.days + '</span></div>' +
+      '<div class="mb-head"><span>Pool spent</span><span>day ' +
+      (c.ref - c.cycleStart + 1) + ' of ' + c.cycleDays + '</span></div>' +
       '<div class="monthbar"><span class="mb-fill" style="width:' + pl.spentPct + '%"></span>' +
       '<span class="mb-tick" style="left:' + pl.monthPct + '%"></span></div>' +
       '<div class="pace">' + pl.text + '</div></div>';
@@ -238,6 +241,9 @@ export function todayView() {
 
     banner +
     (locked ? '' : pendingIncomeCard(k)) +
+    (locked || !c.early ? '' :
+      '<div class="banner safe"><i class="ti ti-coin"></i><span><b>' + fmt(c.early) +
+      '</b> arrived early and is in this pool. It will not be counted again next month.</span></div>') +
     (locked ? '' : upcomingCard(k, c)) +
 
     (dayEntries.length
@@ -272,7 +278,7 @@ export function todayView() {
 }
 
 function curSafe(c) {
-  return S.curDay || (c.isNow ? new Date().getDate() : 1);
+  return S.curDay || (c.isNow ? now().getDate() : 1);
 }
 
 function entryRows(list, locked) {

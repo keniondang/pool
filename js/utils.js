@@ -41,10 +41,22 @@ export const SEED={income:24500000,savingsTarget:6000000,startingSavings:0,
     {name:'Data',amount:125000}
   ]};
 
+let SIM=null;
+try{ SIM=localStorage.getItem('pool:sim')||null; }catch(e){}
+
+/** Every "what is today" question goes through this, so the test jump
+ *  moves the whole app rather than one screen. */
+export function now(){ return SIM ? new Date(SIM+'T12:00:00') : new Date(); }
+export function simDate(){ return SIM; }
+export function setSim(v){
+  SIM=v;
+  try{ v ? localStorage.setItem('pool:sim',v) : localStorage.removeItem('pool:sim'); }catch(e){}
+}
+
 export const fmt=n=>Math.round(n).toLocaleString('de-DE');
 export const short=n=>{n=Math.round(n);return n>=1000000?(n/1000000).toFixed(n%1000000===0?0:1)+'m':n>=1000?Math.round(n/1000)+'k':String(n);};
 export const key=(y,m)=>y+'-'+String(m+1).padStart(2,'0');
-export const nowKey=()=>{const d=new Date();return key(d.getFullYear(),d.getMonth());};
+export const nowKey=()=>{const d=now();return key(d.getFullYear(),d.getMonth());};
 export const parseKey=k=>{const[a,b]=k.split('-').map(Number);return{y:a,m:b-1};};
 export const dim=(y,m)=>new Date(y,m+1,0).getDate();
 export const firstDow=(y,m)=>(new Date(y,m,1).getDay()+6)%7;
