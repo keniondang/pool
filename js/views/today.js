@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey,
          catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
-import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay } from '../data.js';
+import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor } from '../data.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
@@ -12,23 +12,114 @@ import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
 
 let autoOpened = false;
 
+/** Days ahead of or behind an even spend across the month.
+ *  Positive means over pace. The divisor is the daily number you
+ *  started the month with, so it reads in the same unit as everything else. */
+function pace(c) {
+  if (!c.pool || !c.days) return 0;
+  return (c.spent / (c.pool / c.days)) - c.ref;
+}
+
+function paceLine(c) {
+  const p = pace(c);
+  const spentPct = Math.min(100, Math.max(0, c.spent / c.pool * 100));
+  const monthPct = Math.min(100, c.ref / c.days * 100);
+  const facts = Math.round(spentPct) + '% of the pool gone, ' +
+                Math.round(monthPct) + '% through the month. ';
+
+  if (c.available <= 0) {
+    return { over: true, spentPct, monthPct,
+      text: '<b>Pool is spent, ' + c.daysLeft + ' days to go.</b>' };
+  }
+  if (Math.abs(p) < 0.5) {
+    return { over: false, spentPct, monthPct, text: facts + '<b>Right on pace.</b>' };
+  }
+  if (p < 0) {
+    return { over: false, spentPct, monthPct,
+      text: facts + '<b>About ' + Math.round(-p) + ' days under pace.</b>' };
+  }
+  return { over: true, spentPct, monthPct,
+    text: facts + '<b>About ' + Math.round(p) + ' days over pace.</b> ' +
+          'Your number dropped to ' + fmt(c.perDay) + ' to cover it.' };
+}
+
+/** Up to fourteen days ending on the day you are viewing. */
+function stripCard(k, c) {
+  const from = Math.max(1, c.ref - 13);
+  const days = [];
+  for (let dd = from; dd <= c.ref; dd++) {
+    const info = c.byDay[dd];
+    days.push({ d: dd, total: info ? info.total : 0, snap: info ? info.snap : 0 });
+  }
+  if (!days.some(x => x.total > 0)) return '';
+
+  const max = Math.max.apply(null, days.map(x => x.total)) || 1;
+  const bars = days.map(x => {
+    const h = x.total ? Math.max(8, (x.total / max) * 100) : 4;
+    const colour = !x.total ? 'var(--line)'
+      : x.total > x.snap ? 'var(--brass)'
+      : x.d === c.ref ? 'var(--sage)' : 'var(--sage-mid)';
+    return '<div class="sbar" style="height:' + h + '%;background:' + colour + '"></div>';
+  }).join('');
+
+  const big = days.filter(x => x.total && x.total > x.snap).length;
+  const firstWeek = days.filter(x => x.d <= 7 && x.total && x.total > x.snap).length;
+  const note = big === 0
+    ? 'Every day under your number.'
+    : big + ' big day' + (big === 1 ? '' : 's') +
+      (firstWeek >= 2 ? ', ' + firstWeek + ' of them in your first week.' : '.');
+
+  return '<div class="card"><div class="card-head"><div class="lhs">' +
+    '<i class="ti ti-chart-bar"></i>' +
+    (days.length < 14 ? 'This month so far' : 'Last 14 days') + '</div></div>' +
+    '<div class="strip">' + bars + '</div>' +
+    '<div class="strip-note">' + note + '</div></div>';
+}
+
+/** Only rendered when something is actually waiting. */
+function upcomingCard(k, c) {
+  const out = [];
+  plannedFor(k).forEach(p => {
+    out.push('<div class="banner warn" style="margin-bottom:8px;">' +
+      '<i class="ti ti-calendar-plus"></i>' + p.name + ', <b>' + fmt(p.amount) +
+      '</b>, set aside for the ' + ordinal(+p.due.slice(8, 10)) + '</div>');
+  });
+  (S.config.wishlist || []).forEach(w => {
+    if (daysSince(w.added) >= 30) {
+      out.push('<div class="banner safe" style="margin-bottom:8px;">' +
+        '<i class="ti ti-bookmark"></i>' + w.name + ' has waited 30 days. Still want it?</div>');
+    }
+  });
+  return out.join('');
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function daysSince(isoDate) {
+  const then = new Date(isoDate + 'T00:00:00');
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((now - then) / 86400000));
+}
+
 export function todayView() {
   ensureDay();
   const k = S.viewMonth, c = calc(k, S.curDay), { y, m } = parseKey(k);
   const real = new Date();
-  const dnum = curSafe(c);
+  const dnum = S.curDay;
   const tIso = iso(y, m, dnum);
-  const d = md(k);
-  const dayEntries = d.entries.filter(e => e.date === tIso);
+  const dayEntries = md(k).entries.filter(e => e.date === tIso);
   const spentToday = dayEntries.reduce((s, e) => s + e.amount, 0);
-  const pct = c.perDay > 0 ? Math.min(100, spentToday / c.perDay * 100) : 0;
-  const over = spentToday > c.perDay;
   const dObj = new Date(y, m, dnum);
   const isToday = (nowKey() === k && real.getDate() === dnum);
   const prevBlocked = dnum === 1 && (() => {
     const p = new Date(y, m - 1, 1);
     return key(p.getFullYear(), p.getMonth()) < S.config.startMonth;
   })();
+  const pl = paceLine(c);
 
   let banner = '';
   if (c.drawn > 0) {
@@ -40,7 +131,6 @@ export function todayView() {
   }
 
   return '<div class="wrap">' +
-    // date and the day arrows share one row, so the old nav card is gone
     '<div class="topbar"><div><div class="eyebrow">Pool</div>' +
     '<h1>' + (isToday ? 'Today' : MONTHS[m] + ' ' + y) + '</h1></div>' +
     '<div class="meta">' +
@@ -58,25 +148,34 @@ export function todayView() {
       '<button class="navbtn" id="dNext"><i class="ti ti-chevron-right"></i></button>' +
     '</div>' +
 
-    '<div class="hero"><div class="hero-label">Safe to spend today</div>' +
+    // Tinted fill and a month-length bar, so it cannot be mistaken for the
+    // white sheet header that measures the day.
+    '<div class="hero tint' + (pl.over ? ' warn' : '') + '">' +
+    '<div class="hero-label">Safe to spend today</div>' +
     '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
-    '<div class="hero-sub">' + fmt(c.available) + ' left in the pool</div>' +
-    '<div class="meter' + (over ? ' over' : '') + '"><span style="width:' + pct + '%"></span></div>' +
-    '<div class="meter-legend"><span>' + fmt(spentToday) + ' spent</span><span>' +
-    (over ? 'over by ' + fmt(spentToday - c.perDay) : fmt(c.perDay - spentToday) + ' to go') +
-    '</span></div></div>' +
+    '<div class="mb-head"><span>Month spent</span><span>day ' + c.ref + ' of ' + c.days + '</span></div>' +
+    '<div class="monthbar"><span class="mb-fill" style="width:' + pl.spentPct + '%"></span>' +
+    '<span class="mb-tick" style="left:' + pl.monthPct + '%"></span></div>' +
+    '<div class="pace">' + pl.text + '</div>' +
+    '</div>' +
 
     '<button class="btn solid logcta" id="openLog" style="background:' + catColor(S.selCat) + ';">' +
     '<i class="ti ti-pencil-plus"></i>Log a spend</button>' +
 
     banner +
+    upcomingCard(k, c) +
 
     (dayEntries.length
-      ? '<div class="card" style="margin-top:12px;"><div class="card-head">' +
+      ? '<div class="card"><div class="card-head">' +
         '<div class="lhs"><i class="ti ti-list"></i>Logged this day</div>' +
         '<span style="font-variant-numeric:tabular-nums;">' + fmt(spentToday) + '</span></div>' +
         entryRows(dayEntries) + '</div>'
       : '') +
+
+    stripCard(k, c) +
+
+    '<div class="handled"><i class="ti ti-lock"></i><span><b>' +
+    fmt(c.locked + S.config.savingsTarget) + '</b> in bills and savings already covered</span></div>' +
 
     '<div class="card"><div class="card-head"><div class="lhs">' +
     '<i class="ti ti-shield-check"></i>Savings</div></div>' +
@@ -84,6 +183,10 @@ export function todayView() {
     '<span class="v serif" style="font-size:17px;">' + fmt(S.meta.savingsBalance) + '</span></div>' +
     '<div class="kv"><span>Adding this month</span><span class="v">' +
     fmt(S.config.savingsTarget - c.drawn) + '</span></div>' +
+    (c.available <= 0
+      ? '<div class="banner warn" style="margin:12px 0 0;"><i class="ti ti-arrow-down-right"></i>' +
+        'The pool is empty with ' + c.daysLeft + ' days to go. This is the moment to use savings.</div>'
+      : '') +
     '<div style="margin-top:10px;"><button class="btn quiet" id="drawT">Use savings this month</button></div>' +
     '</div></div>';
 }

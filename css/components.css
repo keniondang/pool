@@ -369,3 +369,61 @@ input.invalid{ border-color:#C4795E !important; }
   margin:0 0 12px;   /* matches the 12px gap every card uses */
 }
 .logcta i{ font-size:19px; }
+
+/* ---------------------------------------------------------- today hero, month axis */
+.hero.tint{
+  background:var(--sage-bg); border-color:var(--sage-mid);
+}
+.hero.tint .hero-label{ color:#3D6B52; }
+.hero.tint .hero-num{ color:#2C513E; }
+.hero.tint .hero-num .cur{ color:#5C806C; }
+.hero.tint.warn{ background:var(--brass-bg); border-color:var(--brass-mid); }
+.hero.tint.warn .hero-label{ color:#8A6526; }
+.hero.tint.warn .hero-num{ color:#78561F; }
+.hero.tint.warn .hero-num .cur{ color:#9C7B3F; }
+
+.mb-head{
+  display:flex; justify-content:space-between; font-size:11.5px;
+  margin-top:18px; color:#3D6B52; font-variant-numeric:tabular-nums;
+}
+.hero.tint.warn .mb-head{ color:#8A6526; }
+
+.monthbar{
+  position:relative; height:7px; border-radius:99px; margin-top:6px;
+  background:rgba(63,120,88,.18);
+}
+.hero.tint.warn .monthbar{ background:rgba(168,117,46,.2); }
+.mb-fill{
+  display:block; height:100%; border-radius:99px; background:var(--sage);
+  transition:width .3s ease;
+}
+.hero.tint.warn .mb-fill{ background:var(--brass); }
+.mb-tick{
+  position:absolute; top:-3px; width:2px; height:13px; border-radius:1px;
+  background:#2C513E; opacity:.55; transform:translateX(-1px);
+}
+.hero.tint.warn .mb-tick{ background:#78561F; }
+
+.pace{
+  font-size:12.5px; line-height:1.55; margin-top:9px; color:#3D6B52;
+}
+.pace b{ color:#2C513E; }
+.hero.tint.warn .pace{ color:#8A6526; }
+.hero.tint.warn .pace b{ color:#78561F; }
+
+/* ---------------------------------------------------------- 14 day strip */
+.strip{ display:flex; align-items:flex-end; gap:4px; height:56px; }
+.sbar{ flex:1; border-radius:3px 3px 2px 2px; min-height:4px; }
+.strip-note{
+  font-size:12.5px; color:var(--ink2); line-height:1.55;
+  border-top:1px solid var(--line); margin-top:12px; padding-top:10px;
+}
+
+/* ---------------------------------------------------------- handled line */
+.handled{
+  display:flex; align-items:center; gap:10px;
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:13px 16px; margin-bottom:12px; font-size:13px; color:var(--ink2);
+}
+.handled i{ font-size:16px; color:var(--ink3); flex-shrink:0; }
+.handled b{ color:var(--ink); font-variant-numeric:tabular-nums; }
