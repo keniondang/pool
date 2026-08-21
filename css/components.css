@@ -332,8 +332,10 @@ input.invalid{ border-color:#C4795E !important; }
 }
 
 .sheet-head{
-  padding:16px 18px 14px; border-bottom:1px solid var(--line); flex-shrink:0;
+  padding:16px 18px 13px; border-bottom:1px solid var(--line); flex-shrink:0;
 }
+.sheet-head .meter{ margin-top:12px; }
+.sheet-head .meter-legend{ margin-top:6px; }
 .sheet-body{
   padding:16px 18px calc(20px + env(safe-area-inset-bottom));
   overflow-y:auto; -webkit-overflow-scrolling:touch;
@@ -345,7 +347,7 @@ input.invalid{ border-color:#C4795E !important; }
   letter-spacing:-.015em; color:var(--sage); font-variant-numeric:tabular-nums;
 }
 .sheet-num .cur{ font-size:14px; color:var(--ink3); font-family:'Inter',sans-serif; margin-left:5px; }
-.sheet-sub{ font-size:12.5px; color:var(--ink3); margin-top:5px; }
+.sheet-sub{ font-size:12px; color:var(--ink3); margin-top:5px; line-height:1.45; }
 .sheet-x{
   background:none; border:1px solid var(--line2); border-radius:10px;
   width:34px; height:34px; display:flex; align-items:center; justify-content:center;

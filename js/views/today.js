@@ -197,13 +197,28 @@ function sheetHeader(k) {
   const c = calc(k, S.curDay);
   const { y, m } = parseKey(k);
   const dObj = new Date(y, m, S.curDay);
-  return '<div class="sheet-top"><div>' +
-    '<div class="sheet-label">Safe to spend today</div>' +
-    '<div class="sheet-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
-    '<div class="sheet-sub">' + c.daysLeft + ' days left · ' +
-    dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
-    '</div></div>' +
-    '<button class="sheet-x"><i class="ti ti-x"></i></button></div>';
+  const tIso = iso(y, m, S.curDay);
+  const spentToday = md(k).entries
+    .filter(e => e.date === tIso)
+    .reduce((s, e) => s + e.amount, 0);
+  const pct = c.perDay > 0 ? Math.min(100, spentToday / c.perDay * 100) : 0;
+  const over = spentToday > c.perDay;
+
+  return '<div class="sheet-top"><div style="flex:1;min-width:0;">' +
+      '<div class="sheet-label">Safe to spend today</div>' +
+      '<div class="sheet-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
+      '<div class="sheet-sub">' + fmt(c.available) + ' left in the pool · ' +
+        c.daysLeft + ' days left · ' +
+        dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
+      '</div>' +
+    '</div>' +
+    '<button class="sheet-x"><i class="ti ti-x"></i></button></div>' +
+
+    '<div class="meter' + (over ? ' over' : '') + '" style="margin-top:12px;">' +
+    '<span style="width:' + pct + '%"></span></div>' +
+    '<div class="meter-legend"><span>' + fmt(spentToday) + ' spent today</span><span>' +
+    (over ? 'over by ' + fmt(spentToday - c.perDay) : fmt(c.perDay - spentToday) + ' to go') +
+    '</span></div>';
 }
 
 function sheetBody(k) {
