@@ -502,3 +502,17 @@ input.invalid{ border-color:#C4795E !important; }
 }
 .navbtn:disabled{ opacity:.28; }
 .sheet-sub b{ color:var(--ink2); }
+
+/* ---------------------------------------------------------- wizard choice cards */
+.pick{
+  display:flex; flex-direction:column; gap:3px; width:100%; text-align:left;
+  background:var(--paper); border:1px solid var(--line); border-radius:12px;
+  padding:13px 14px; margin-bottom:8px; cursor:pointer; font-family:'Inter',sans-serif;
+}
+.pick.on{ background:var(--sage-bg); border-color:var(--sage); box-shadow:0 0 0 1px var(--sage); }
+.pick .pt{ font-size:14px; font-weight:500; color:var(--ink); }
+.pick.on .pt{ color:#2C513E; }
+.pick .ps{ font-size:12px; color:var(--ink3); line-height:1.5; }
+.pick.on .ps{ color:#3D6B52; }
+.mtile:disabled{ opacity:.32; cursor:default; }
+.steps div{ transition:background .2s ease; }

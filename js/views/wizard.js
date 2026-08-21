@@ -1,117 +1,419 @@
 import { S } from '../state.js';
 import * as DB from '../db.js';
-import { MSHORT, SEED, fmt, money, key, nowKey, parseKey, dim, billRow, syncBills, wireMoney } from '../utils.js';
+import { MONTHS, MSHORT, fmt, money, key, nowKey, parseKey, dim, wireMoney } from '../utils.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
+import { monthState, saveMonthState } from '../data.js';
 
-export function renderWizard(){
-  document.getElementById('tabbar').style.display='none';
-  if(!S.wiz.draft) S.wiz.draft=JSON.parse(JSON.stringify(SEED));
-  const a=document.getElementById('app');
-  a.innerHTML='<div class="wrap">'+
-    '<div class="eyebrow">Set up once</div>'+
-    '<h1 style="margin-bottom:14px;">Build your pool</h1>'+
-    '<div class="steps"><div class="'+(S.wiz.step>=1?'on':'')+'"></div><div class="'+(S.wiz.step>=2?'on':'')+'"></div><div class="'+(S.wiz.step>=3?'on':'')+'"></div></div>'+
-    (S.wiz.step===1?step1():S.wiz.step===2?step2():step3())+
-  '</div>';
-  wireWizard();
+// Four steps. Nobody opens a budgeting app on the 1st of the month, so a
+// mid-month start is a first-class path here rather than a repair job.
+
+const blank = () => ({
+  startMonth: nowKey(),
+  useBalance: null,          // true = state what is left, false = derive from income
+  balance: 0,
+  incomeSources: [{ id: 'src-' + Date.now(), name: '', amount: 0 }],
+  lockedBills: [
+    { name: 'Rent and utilities', amount: 0 },
+    { name: 'Transport', amount: 0 }
+  ],
+  billsPaid: false,
+  savingsTarget: 0,
+  savingsThisMonth: null,    // null = same as target
+  startingSavings: 0
+});
+
+function fromConfig() {
+  const k = S.viewMonth || nowKey();
+  const st = monthState(k);
+  return {
+    startMonth: S.config.startMonth,
+    useBalance: st.balanceOverride !== null,
+    balance: st.balanceOverride === null ? 0 : st.balanceOverride,
+    incomeSources: (S.config.incomeSources || []).map(x => Object.assign({}, x)),
+    lockedBills: (S.config.lockedBills || []).map(b => ({ name: b.name, amount: b.amount })),
+    billsPaid: Object.keys(st.billsPaid || {}).length > 0,
+    savingsTarget: S.config.savingsTarget,
+    savingsThisMonth: st.savingsOverride,
+    startingSavings: S.meta.savingsBalance
+  };
+}
+
+export function renderWizard(mode) {
+  document.getElementById('tabbar').style.display = 'none';
+  if (!S.wiz.draft) {
+    S.wiz.mode = mode || 'create';
+    S.wiz.draft = S.wiz.mode === 'edit' ? fromConfig() : blank();
+    S.wiz.step = 1;
+    S.wiz.year = parseKey(S.wiz.draft.startMonth).y;
+  }
+  const d = S.wiz.draft, step = S.wiz.step;
+
+  document.getElementById('app').innerHTML =
+    '<div class="wrap">' +
+    '<div class="eyebrow">' + (S.wiz.mode === 'edit' ? 'Set up again' : 'Set up once') + '</div>' +
+    '<h1 style="margin-bottom:14px;">' +
+      (S.wiz.mode === 'edit' ? 'Adjust your pool' : 'Build your pool') + '</h1>' +
+    '<div class="steps">' +
+      [1, 2, 3, 4].map(n => '<div class="' + (step >= n ? 'on' : '') + '"></div>').join('') +
+    '</div>' +
+    (step === 1 ? step1(d) : step === 2 ? step2(d) : step === 3 ? step3(d) : step4(d)) +
+    '</div>';
+
+  wire();
   wireMoney();
   paintIcons();
 }
 
-export function step1(){
-  const y=S.wiz.year;
-  return '<p class="setup-lead">Pick the month you want to start tracking, then tell me what lands in your account each month.</p>'+
-  '<div class="card">'+
-    '<div class="yearnav"><button class="navbtn" id="yPrev"><i class="ti ti-chevron-left"></i></button>'+
-    '<span class="y">'+y+'</span>'+
-    '<button class="navbtn" id="yNext"><i class="ti ti-chevron-right"></i></button></div>'+
-    '<div class="mgrid">'+MSHORT.map((n,i)=>
-      '<button class="mtile'+(S.wiz.month===key(y,i)?' on':'')+'" data-k="'+key(y,i)+'">'+n+'</button>').join('')+'</div>'+
-  '</div>'+
-  '<label class="flabel">Money in each month, both of you together</label>'+
-  '<input id="wIncome" class="money" type="text" value="'+fmt(S.wiz.draft.income)+'" />'+
-  '<div class="fhint">VND. Salary, side income, anything you can actually spend.</div>'+
-  '<div class="err" id="e1">Pick a starting month and enter an amount above zero.</div>'+
-  '<div class="navbtns"><button class="btn solid" id="next1" style="flex:1;">Continue</button></div>';
+// ---------------------------------------------------------------- step 1
+
+function midMonth(d) {
+  return d.startMonth === nowKey() && new Date().getDate() > 1;
 }
 
-export function step2(){
-  const t=S.wiz.draft.lockedBills.reduce((s,b)=>s+(b.amount||0),0);
-  return '<p class="setup-lead">These come off the top and never enter your daily number. That is what makes the end of the month safe.</p>'+
-  '<div class="card">'+
-    '<div id="bills">'+S.wiz.draft.lockedBills.map((b,i)=>billRow(b,i)).join('')+'</div>'+
-    '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button>'+
-    '<div class="kv total"><span>Locked each month</span><span class="v" id="billTotal">'+fmt(t)+'</span></div>'+
-  '</div>'+
-  '<div class="fhint">Put anything predictable here, including fun money like date nights. Pre-committing it means you never skip it because the month went badly.</div>'+
-  '<div class="navbtns"><button class="btn outline" id="back2">Back</button><button class="btn solid" id="next2">Continue</button></div>';
+function step1(d) {
+  const y = S.wiz.year;
+  const today = new Date();
+  const dayNow = today.getDate();
+  const { m } = parseKey(d.startMonth);
+
+  return '<p class="setup-lead">Pick the month you want to start tracking. ' +
+    'Today is ' + today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+    '.</p>' +
+
+    '<div class="card">' +
+      '<div class="yearnav"><button class="navbtn" id="yPrev"><i class="ti ti-chevron-left"></i></button>' +
+      '<span class="y">' + y + '</span>' +
+      '<button class="navbtn" id="yNext"' + (y >= parseKey(nowKey()).y ? ' disabled' : '') + '>' +
+      '<i class="ti ti-chevron-right"></i></button></div>' +
+      '<div class="mgrid">' + MSHORT.map((n, i) => {
+        const kk = key(y, i);
+        const future = kk > nowKey();
+        return '<button class="mtile' + (d.startMonth === kk ? ' on' : '') + '"' +
+          (future ? ' disabled' : '') + ' data-k="' + kk + '">' + n + '</button>';
+      }).join('') + '</div>' +
+    '</div>' +
+
+    (midMonth(d)
+      ? '<div class="card"><div class="card-head"><div class="lhs">' +
+        '<i class="ti ti-calendar-stats"></i>You are starting on the ' + ordinal(dayNow) + '</div></div>' +
+        '<div style="font-size:13.5px;color:var(--ink2);line-height:1.6;margin-bottom:12px;">' +
+        MONTHS[m] + ' is already ' + Math.round(dayNow / dim(parseKey(d.startMonth).y, m) * 100) +
+        '% gone, so working the pool out from a full month\'s income would overstate it. ' +
+        'What is actually in your account right now?</div>' +
+
+        '<button class="pick' + (d.useBalance === true ? ' on' : '') + '" data-pick="balance">' +
+        '<span class="pt">I will tell you what is left</span>' +
+        '<span class="ps">Most accurate mid-month. Only bills you have not paid come off it.</span>' +
+        '</button>' +
+        '<button class="pick' + (d.useBalance === false ? ' on' : '') + '" data-pick="derive">' +
+        '<span class="pt">Work it out from my income</span>' +
+        '<span class="ps">Right if the month\'s money is still untouched.</span>' +
+        '</button>' +
+
+        (d.useBalance === true
+          ? '<label class="flabel">Money left right now</label>' +
+            '<input id="wBalance" class="money" type="text" placeholder="0" value="' +
+            (d.balance ? fmt(d.balance) : '') + '" />'
+          : '') +
+        '<div class="err" id="e1">Enter what you have left.</div>' +
+        '</div>'
+      : '<div class="err" id="e1">Pick a month.</div>') +
+
+    '<div class="navbtns"><button class="btn solid" id="next1" style="flex:1;">Continue</button></div>';
 }
 
-export function step3(){
-  return '<p class="setup-lead">Savings is your cushion. It is locked by default, but you can choose to pull from it in a hard month.</p>'+
-  '<label class="flabel">Savings target each month</label>'+
-  '<input id="wSav" class="money" type="text" value="'+fmt(S.wiz.draft.savingsTarget)+'" />'+
-  '<label class="flabel">Savings you already have</label>'+
-  '<input id="wStart" class="money" type="text" value="'+fmt(S.wiz.draft.startingSavings)+'" />'+
-  '<div class="fhint">Whatever you do not spend gets swept in here when the month closes, so this grows on its own.</div>'+
-  '<div class="err" id="e3">Your bills and savings add up to more than you earn. Lower one of them.</div>'+
-  '<div class="preview" id="prev"><span class="l">Your daily number</span><span class="v" id="prevV">0</span></div>'+
-  '<div class="navbtns"><button class="btn outline" id="back3">Back</button><button class="btn solid" id="done3">Start</button></div>';
+// ---------------------------------------------------------------- step 2
+
+function step2(d) {
+  return '<p class="setup-lead">Everything that lands in your account each month. ' +
+    'Add one per person, so you can tick them off separately when the dates differ.</p>' +
+    '<div class="card">' +
+      '<div id="srcs">' + d.incomeSources.map(rowHTML('src')).join('') + '</div>' +
+      '<button class="addbill" id="addSrc"><i class="ti ti-plus"></i>Add another</button>' +
+      '<div class="kv total"><span>Each month</span><span class="v" id="srcTotal">' +
+      fmt(d.incomeSources.reduce((s, x) => s + x.amount, 0)) + '</span></div>' +
+    '</div>' +
+    '<div class="err" id="e2">Give at least one source a name and an amount.</div>' +
+    '<div class="navbtns"><button class="btn outline" id="back">Back</button>' +
+    '<button class="btn solid" id="next2">Continue</button></div>';
 }
 
-export function wireWizard(){
-  const $=id=>document.getElementById(id);
-  if(S.wiz.step===1){
-    $('yPrev').onclick=()=>{S.wiz.year--;renderWizard();};
-    $('yNext').onclick=()=>{S.wiz.year++;renderWizard();};
-    document.querySelectorAll('.mtile').forEach(t=>t.onclick=()=>{S.wiz.month=t.dataset.k;renderWizard();});
-    $('next1').onclick=()=>{
-      const inc=money($('wIncome').value);
-      if(!S.wiz.month||inc<=0){$('e1').classList.add('show');return;}
-      S.wiz.draft.income=inc;S.wiz.step=2;renderWizard();
+// ---------------------------------------------------------------- step 3
+
+function step3(d) {
+  const { m } = parseKey(d.startMonth);
+  return '<p class="setup-lead">These come off the top and never enter your daily number. ' +
+    'That is what makes the end of the month safe.</p>' +
+    '<div class="card">' +
+      '<div id="bills">' + d.lockedBills.map(rowHTML('bill')).join('') + '</div>' +
+      '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button>' +
+      '<div class="kv total"><span>Locked each month</span><span class="v" id="billTotal">' +
+      fmt(d.lockedBills.reduce((s, b) => s + b.amount, 0)) + '</span></div>' +
+    '</div>' +
+    '<div class="fhint">Put anything predictable here, including fun money like date nights. ' +
+    'Pre-committing it means you never skip it because the month went badly.</div>' +
+
+    (d.useBalance
+      ? '<div class="card" style="margin-top:12px;"><div class="card-head"><div class="lhs">' +
+        '<i class="ti ti-check"></i>Paid already?</div></div>' +
+        '<button class="pick' + (d.billsPaid ? ' on' : '') + '" data-paid="1">' +
+        '<span class="pt">Yes, this month\'s bills are paid</span>' +
+        '<span class="ps">They came out of the balance you just told me, so they will not be deducted again.</span>' +
+        '</button>' +
+        '<button class="pick' + (!d.billsPaid ? ' on' : '') + '" data-paid="0">' +
+        '<span class="pt">No, still to come out</span>' +
+        '<span class="ps">They will be held back from your daily number.</span>' +
+        '</button></div>'
+      : '') +
+
+    '<div class="navbtns"><button class="btn outline" id="back">Back</button>' +
+    '<button class="btn solid" id="next3">Continue</button></div>';
+}
+
+// ---------------------------------------------------------------- step 4
+
+function step4(d) {
+  const { m } = parseKey(d.startMonth);
+  return '<p class="setup-lead">Savings is your cushion. It is locked by default, ' +
+    'but you can choose to pull from it in a hard month.</p>' +
+
+    '<label class="flabel" style="margin-top:0;">Savings target each month</label>' +
+    '<input id="wSav" class="money" type="text" value="' + fmt(d.savingsTarget) + '" />' +
+
+    '<label class="flabel">Savings you already have</label>' +
+    '<input id="wStart" class="money" type="text" value="' + fmt(d.startingSavings) + '" />' +
+
+    (midMonth(d)
+      ? '<label class="flabel">Saving in ' + MONTHS[m] + '</label>' +
+        '<input id="wSavMonth" class="money" type="text" placeholder="same as target" value="' +
+        (d.savingsThisMonth === null ? '' : fmt(d.savingsThisMonth)) + '" />' +
+        '<div class="fhint">Blank keeps your usual target. Put 0 if you are skipping ' +
+        MONTHS[m] + ' and starting properly next month.</div>'
+      : '') +
+
+    '<div class="err" id="e4">That does not leave anything to live on. Lower one of them.</div>' +
+    '<div class="preview" id="prev"><span class="l">Your daily number</span>' +
+    '<span class="v" id="prevV">0</span></div>' +
+    '<div class="navbtns"><button class="btn outline" id="back">Back</button>' +
+    '<button class="btn solid" id="done">' +
+    (S.wiz.mode === 'edit' ? 'Save' : 'Start') + '</button></div>';
+}
+
+// ---------------------------------------------------------------- shared
+
+function rowHTML(kind) {
+  return (item, i) =>
+    '<div class="billrow" data-i="' + i + '" data-kind="' + kind + '">' +
+      '<input class="bn" type="text" value="' + (item.name || '') + '" placeholder="' +
+      (kind === 'src' ? 'Whose' : 'Name') + '" />' +
+      '<input class="ba money" type="text" value="' + (item.amount ? fmt(item.amount) : '') +
+      '" placeholder="0" />' +
+      '<button class="iconbtn rmrow"><i class="ti ti-x"></i></button>' +
+    '</div>';
+}
+
+function readRows(sel) {
+  return [].slice.call(document.querySelectorAll(sel + ' .billrow')).map(r => ({
+    name: r.querySelector('.bn').value.trim(),
+    amount: money(r.querySelector('.ba').value)
+  }));
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/** What the daily number will actually be, using the same rules as calc(). */
+function previewDaily(d) {
+  const { y, m } = parseKey(d.startMonth);
+  const days = dim(y, m);
+  const isNow = d.startMonth === nowKey();
+  const refDay = isNow ? new Date().getDate() : 1;
+  const daysLeft = days - refDay + 1;
+
+  const bills = d.lockedBills.reduce((s, b) => s + b.amount, 0);
+  const income = d.incomeSources.reduce((s, x) => s + x.amount, 0);
+  const savings = (midMonth(d) && d.savingsThisMonth !== null) ? d.savingsThisMonth : d.savingsTarget;
+
+  const pool = d.useBalance
+    ? d.balance - (d.billsPaid ? 0 : bills) - savings
+    : income - bills - savings;
+
+  return { pool, daysLeft, perDay: pool / Math.max(1, daysLeft) };
+}
+
+// ---------------------------------------------------------------- wiring
+
+function wire() {
+  const $ = id => document.getElementById(id);
+  const d = S.wiz.draft;
+
+  const back = $('back');
+  if (back) back.onclick = () => { syncStep(); S.wiz.step--; renderWizard(); };
+
+  if (S.wiz.step === 1) {
+    $('yPrev').onclick = () => { S.wiz.year--; renderWizard(); };
+    $('yNext').onclick = () => { if (S.wiz.year < parseKey(nowKey()).y) S.wiz.year++; renderWizard(); };
+    document.querySelectorAll('.mtile').forEach(t => {
+      if (t.disabled) return;
+      t.onclick = () => { d.startMonth = t.dataset.k; if (!midMonth(d)) d.useBalance = null; renderWizard(); };
+    });
+    document.querySelectorAll('.pick[data-pick]').forEach(b => {
+      b.onclick = () => { d.useBalance = b.dataset.pick === 'balance'; renderWizard(); };
+    });
+    $('next1').onclick = () => {
+      if (midMonth(d)) {
+        if (d.useBalance === null) {
+          $('e1').textContent = 'Choose one of the two above.';
+          $('e1').classList.add('show'); return;
+        }
+        if (d.useBalance) {
+          const v = money($('wBalance').value);
+          if (v <= 0) { $('e1').textContent = 'Enter what you have left.'; $('e1').classList.add('show'); return; }
+          d.balance = v;
+        }
+      }
+      S.wiz.step = 2; renderWizard();
     };
   }
-  if(S.wiz.step===2){
-    const sync=syncBills;
-    document.querySelectorAll('.billrow input').forEach(i=>i.addEventListener('input',sync));
-    $('addBill').onclick=()=>{sync();S.wiz.draft.lockedBills.push({name:'',amount:0});renderWizard();};
-    $('back2').onclick=()=>{sync();S.wiz.step=1;renderWizard();};
-    $('next2').onclick=()=>{sync();S.wiz.draft.lockedBills=S.wiz.draft.lockedBills.filter(b=>b.amount>0);S.wiz.step=3;renderWizard();};
+
+  if (S.wiz.step === 2) {
+    const sync = () => {
+      $('srcTotal').textContent = fmt(readRows('#srcs').reduce((s, x) => s + x.amount, 0));
+    };
+    document.querySelectorAll('#srcs input').forEach(i => i.addEventListener('input', sync));
+    $('addSrc').onclick = () => {
+      syncStep();
+      d.incomeSources.push({ id: 'src-' + Date.now() + Math.random().toString(36).slice(2, 5), name: '', amount: 0 });
+      renderWizard();
+    };
+    $('next2').onclick = () => {
+      syncStep();
+      const good = d.incomeSources.filter(x => x.name && x.amount > 0);
+      if (!good.length) { $('e2').classList.add('show'); return; }
+      d.incomeSources = good;
+      S.wiz.step = 3; renderWizard();
+    };
   }
-  if(S.wiz.step===3){
-    const upd=()=>{
-      const sav=money($('wSav').value);
-      const locked=S.wiz.draft.lockedBills.reduce((s,b)=>s+b.amount,0);
-      const pool=S.wiz.draft.income-locked-sav;
-      const {y,m}=parseKey(S.wiz.month);
-      const per=pool/dim(y,m);
-      const p=$('prev');
-      if(pool<=0){p.classList.add('bad');$('prevV').textContent='Does not fit';}
-      else{p.classList.remove('bad');$('prevV').textContent=fmt(per);}
+
+  if (S.wiz.step === 3) {
+    const sync = () => {
+      $('billTotal').textContent = fmt(readRows('#bills').reduce((s, b) => s + b.amount, 0));
     };
-    $('wSav').oninput=upd;upd();
-    $('back3').onclick=()=>{S.wiz.step=2;renderWizard();};
-    $('done3').onclick=async()=>{
-      const sav=money($('wSav').value);
-      const start=money($('wStart').value);
-      const locked=S.wiz.draft.lockedBills.reduce((s,b)=>s+b.amount,0);
-      if(S.wiz.draft.income-locked-sav<=0){$('e3').classList.add('show');return;}
-      S.config={income:S.wiz.draft.income,savingsTarget:sav,startingSavings:start,
-        lockedBills:S.wiz.draft.lockedBills,startMonth:S.wiz.month};
-      S.meta={savingsBalance:start,closed:[],lastAmounts:{}};
-      const poolId = await DB.createPool({
-        name:'Our pool', income:S.config.income, savingsTarget:S.config.savingsTarget,
-        startingSavings:start, startMonth:S.config.startMonth
-      });
-      S.config.poolId = poolId;
-      await DB.saveConfig(S.config);
-      await DB.saveMeta(poolId, S.meta);
-      S.months={};S.viewMonth=(nowKey()>=S.wiz.month)?nowKey():S.wiz.month;
-      document.getElementById('tabbar').style.display='flex';
-      S.screen='today';render();
+    document.querySelectorAll('#bills input').forEach(i => i.addEventListener('input', sync));
+    $('addBill').onclick = () => { syncStep(); d.lockedBills.push({ name: '', amount: 0 }); renderWizard(); };
+    document.querySelectorAll('.pick[data-paid]').forEach(b => {
+      b.onclick = () => { syncStep(); d.billsPaid = b.dataset.paid === '1'; renderWizard(); };
+    });
+    $('next3').onclick = () => {
+      syncStep();
+      d.lockedBills = d.lockedBills.filter(b => b.name && b.amount > 0);
+      S.wiz.step = 4; renderWizard();
     };
+  }
+
+  if (S.wiz.step === 4) {
+    const upd = () => {
+      syncStep();
+      const p = previewDaily(d);
+      const box = $('prev');
+      if (p.pool <= 0) { box.classList.add('bad'); $('prevV').textContent = 'Does not fit'; }
+      else { box.classList.remove('bad'); $('prevV').textContent = fmt(p.perDay); }
+    };
+    ['wSav', 'wStart', 'wSavMonth'].forEach(id => { if ($(id)) $(id).addEventListener('input', upd); });
+    upd();
+    $('done').onclick = () => finish();
+  }
+
+  document.querySelectorAll('.rmrow').forEach(btn => {
+    btn.onclick = () => {
+      const row = btn.closest('.billrow');
+      const kind = row.dataset.kind, i = parseInt(row.dataset.i, 10);
+      syncStep();
+      if (kind === 'src') d.incomeSources.splice(i, 1);
+      else d.lockedBills.splice(i, 1);
+      renderWizard();
+    };
+  });
+}
+
+/** Pull whatever is on screen back into the draft before re-rendering. */
+function syncStep() {
+  const d = S.wiz.draft, $ = id => document.getElementById(id);
+  if (S.wiz.step === 1 && $('wBalance')) d.balance = money($('wBalance').value);
+  if (S.wiz.step === 2 && document.querySelector('#srcs')) {
+    const rows = readRows('#srcs');
+    d.incomeSources = rows.map((r, i) => ({
+      id: (d.incomeSources[i] && d.incomeSources[i].id) || 'src-' + Date.now() + i,
+      name: r.name, amount: r.amount
+    }));
+  }
+  if (S.wiz.step === 3 && document.querySelector('#bills')) d.lockedBills = readRows('#bills');
+  if (S.wiz.step === 4) {
+    if ($('wSav')) d.savingsTarget = money($('wSav').value);
+    if ($('wStart')) d.startingSavings = money($('wStart').value);
+    if ($('wSavMonth')) {
+      const raw = $('wSavMonth').value.trim();
+      d.savingsThisMonth = raw === '' ? null : money(raw);
+    }
   }
 }
 
-/* ---------- main ---------- */
+async function finish() {
+  const d = S.wiz.draft, $ = id => document.getElementById(id);
+  syncStep();
+
+  const p = previewDaily(d);
+  if (p.pool <= 0) { $('e4').classList.add('show'); return; }
+  $('e4').classList.remove('show');
+
+  const creating = S.wiz.mode !== 'edit';
+
+  if (creating) {
+    const poolId = await DB.createPool({
+      name: 'Our pool',
+      income: d.incomeSources.reduce((s, x) => s + x.amount, 0),
+      savingsTarget: d.savingsTarget,
+      startingSavings: d.startingSavings,
+      startMonth: d.startMonth
+    });
+    S.config = { poolId: poolId, startMonth: d.startMonth };
+    S.meta = { savingsBalance: d.startingSavings, closed: [], lastAmounts: {} };
+  }
+
+  S.config.incomeSources = d.incomeSources;
+  S.config.lockedBills = d.lockedBills;
+  S.config.savingsTarget = d.savingsTarget;
+  S.config.planned = S.config.planned || [];
+  S.config.wishlist = S.config.wishlist || [];
+  S.meta.savingsBalance = d.startingSavings;
+
+  await DB.saveConfig(S.config);
+  await DB.saveMeta(S.config.poolId, S.meta);
+
+  // Reload so the bills come back with real ids, which the paid flags need.
+  const fresh = await DB.loadAll();
+  S.config = Object.assign(fresh.config, { startMonth: d.startMonth });
+  S.meta = fresh.meta;
+  S.months = fresh.months;
+  S.monthStates = fresh.monthStates || {};
+
+  const k = d.startMonth;
+  const st = monthState(k);
+  st.balanceOverride = (midMonth(d) && d.useBalance) ? d.balance : null;
+  st.savingsOverride = midMonth(d) ? d.savingsThisMonth : null;
+  st.billsPaid = {};
+  if (midMonth(d) && d.useBalance && d.billsPaid) {
+    S.config.lockedBills.forEach(b => { st.billsPaid[b.id] = true; });
+  }
+  await saveMonthState(k);
+
+  S.viewMonth = (nowKey() >= d.startMonth) ? nowKey() : d.startMonth;
+  S.curDay = null;
+  S.wiz = { step: 1, year: parseKey(nowKey()).y, month: null, draft: null, mode: 'create' };
+  document.getElementById('tabbar').style.display = 'flex';
+  S.screen = 'today';
+  render();
+}

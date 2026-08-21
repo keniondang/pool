@@ -245,6 +245,12 @@ export function setView() {
     '<label class="flabel">Balance</label>' +
     '<input id="sBal" class="money" type="text" value="' + fmt(S.meta.savingsBalance) + '" /></div>' +
 
+    '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-refresh"></i>Set up again</div></div>' +
+    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">' +
+    'Walk through setup again to change your income, bills, savings, or to state ' +
+    'a fresh balance part-way through a month. Nothing you have logged is deleted.</div>' +
+    '<button class="btn outline" id="rerun" style="width:100%;">Run setup again</button></div>' +
+
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-download"></i>Backup</div></div>' +
     '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">Everything lives in this browser only. Export a file now and then so clearing your browser cannot wipe your history.</div>' +
     '<div style="display:flex;gap:8px;"><button class="btn outline" id="expBtn" style="flex:1;">Export file</button>' +
@@ -699,6 +705,12 @@ export function wireSet() {
   };
 
   // ---- erase ----
+  const rerun = $('rerun');
+  if (rerun) rerun.onclick = () => {
+    S.wiz = { step: 1, year: 0, month: null, draft: null, mode: 'edit' };
+    renderWizard('edit');
+  };
+
   $('eraseT').onclick = () => {
     const entryCount = Object.keys(S.months)
       .reduce((n, k) => n + (S.months[k].entries || []).length, 0);
