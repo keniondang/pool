@@ -69,11 +69,12 @@ export async function loadAll() {
   if (!pools || !pools.length) return null;
   const p = pools[0];
 
-  const [bills, entries, draws, cycles] = await Promise.all([
+  const [bills, entries, draws, cycles, states] = await Promise.all([
     req('locked_bills?select=*&pool_id=eq.' + p.id + '&active=is.true'),
     req('entries?select=*&pool_id=eq.' + p.id + '&order=created_at.asc'),
     req('savings_draws?select=*&pool_id=eq.' + p.id),
-    req('cycles?select=cycle_key&pool_id=eq.' + p.id)
+    req('cycles?select=cycle_key&pool_id=eq.' + p.id),
+    req('month_state?select=*&pool_id=eq.' + p.id)
   ]);
 
   const config = {
@@ -85,7 +86,11 @@ export async function loadAll() {
       id: b.id, name: b.name, amount: Number(b.amount)
     })),
     planned: p.planned || [],
-    wishlist: p.wishlist || []
+    wishlist: p.wishlist || [],
+    // one source per salary; falls back to the old single income field
+    incomeSources: (p.income_sources && p.income_sources.length)
+      ? p.income_sources.map(x => ({ id: x.id, name: x.name, amount: Number(x.amount) }))
+      : [{ id: 'src-1', name: 'Salary', amount: Number(p.income) }]
   };
 
   const meta = {
@@ -96,6 +101,16 @@ export async function loadAll() {
 
   const months = {};
   const bucket = k => (months[k] = months[k] || { entries: [], draws: [] });
+
+  const monthStates = {};
+  (states || []).forEach(st => {
+    monthStates[st.cycle_key] = {
+      balanceOverride: st.balance_override === null ? null : Number(st.balance_override),
+      savingsOverride: st.savings_override === null ? null : Number(st.savings_override),
+      incomeReceived: st.income_received || {},
+      billsPaid: st.bills_paid || {}
+    };
+  });
 
   (entries || []).forEach(e => {
     bucket(e.spent_on.slice(0, 7)).entries.push({
@@ -118,16 +133,18 @@ export async function loadAll() {
     });
   });
 
-  return { config, meta, months };
+  return { config, meta, months, monthStates };
 }
 
 // ---------------------------------------------------------------- write
 
 export async function saveConfig(config) {
+  const sources = config.incomeSources || [];
   await req('pools?id=eq.' + config.poolId, {
     method: 'PATCH',
     body: {
-      income: config.income,
+      income: sources.reduce((s, x) => s + x.amount, 0),
+      income_sources: sources,
       savings_target: config.savingsTarget,
       planned: config.planned || [],
       wishlist: config.wishlist || []
@@ -244,4 +261,20 @@ export async function pushSnapshot(config, meta, months) {
 
   if (entries.length) await req('entries', { method: 'POST', body: entries });
   if (draws.length) await req('savings_draws', { method: 'POST', body: draws });
+}
+
+export async function saveMonthState(poolId, cycleKey, st) {
+  await req('month_state', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates' },
+    body: {
+      pool_id: poolId,
+      cycle_key: cycleKey,
+      balance_override: st.balanceOverride,
+      savings_override: st.savingsOverride,
+      income_received: st.incomeReceived || {},
+      bills_paid: st.billsPaid || {},
+      updated_at: new Date().toISOString()
+    }
+  });
 }

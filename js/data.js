@@ -34,15 +34,67 @@ export async function saveMeta(){ await DB.saveMeta(S.config.poolId, S.meta); }
 /** One-off costs you know are coming. Set aside like a bill, so the
  *  money is already there when the day arrives instead of cratering
  *  the daily number on the spot. */
+/** Per-month state. Defaults mean an untouched month behaves exactly as
+ *  before: all income in, no bills ticked off, savings from config. */
+export function monthState(k){
+  if(!S.monthStates[k]){
+    S.monthStates[k] = {
+      balanceOverride: null,
+      savingsOverride: null,
+      incomeReceived: {},
+      billsPaid: {}
+    };
+  }
+  return S.monthStates[k];
+}
+
+export async function saveMonthState(k){
+  await DB.saveMonthState(S.config.poolId, k, monthState(k));
+}
+
+/** Received unless explicitly marked otherwise, so the normal month
+ *  where everything has landed needs no taps at all. */
+export function incomeIn(k){
+  const st = monthState(k);
+  return (S.config.incomeSources || [])
+    .filter(src => st.incomeReceived[src.id] !== false);
+}
+
+export function incomePending(k){
+  const st = monthState(k);
+  return (S.config.incomeSources || [])
+    .filter(src => st.incomeReceived[src.id] === false);
+}
+
+export function billsUnpaid(k){
+  const st = monthState(k);
+  return S.config.lockedBills.filter(b => !st.billsPaid[b.id]);
+}
+
+export function savingsFor(k){
+  const st = monthState(k);
+  return st.savingsOverride === null ? S.config.savingsTarget : st.savingsOverride;
+}
+
 export function plannedFor(k){
   return (S.config.planned||[]).filter(p=>p.due && p.due.slice(0,7)===k);
 }
 
 export function calc(k,forDay){
   const {y,m}=parseKey(k), days=dim(y,m), d=md(k);
+  const st=monthState(k);
   const locked=S.config.lockedBills.reduce((s,b)=>s+b.amount,0);
+  const unpaid=billsUnpaid(k).reduce((s,b)=>s+b.amount,0);
   const planned=plannedFor(k).reduce((s,p)=>s+p.amount,0);
-  const pool=S.config.income-locked-S.config.savingsTarget-planned;
+  const savings=savingsFor(k);
+  const received=incomeIn(k).reduce((s,x)=>s+x.amount,0);
+
+  // A stated balance is already post-bills, so only the bills you have
+  // NOT paid yet come off it. Without the paid flags this would
+  // double-count them.
+  const pool = st.balanceOverride !== null
+    ? st.balanceOverride - unpaid - savings - planned
+    : received - locked - savings - planned;
   const spent=d.entries.reduce((s,e)=>s+e.amount,0);
   const drawn=d.draws.reduce((s,x)=>s+x.amount,0);
   const real=new Date();
@@ -65,7 +117,7 @@ export function calc(k,forDay){
   const avg=elapsed>0?spent/elapsed:0;
   let big=0,under=0;
   Object.keys(byDay).forEach(dd=>{byDay[dd].total>byDay[dd].snap?big++:under++;});
-  return{y,m,days,ref,locked,planned,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,avg,byDay,big,under,isNow,today};
+  return{y,m,days,ref,locked,unpaid,received,savings,planned,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,avg,byDay,big,under,isNow,today};
 }
 
 export async function boot(){
@@ -79,9 +131,10 @@ export async function boot(){
   }
   if(!data){ renderWizard(); return; }
 
-  S.config = data.config;
-  S.meta   = data.meta;
-  S.months = data.months;
+  S.config      = data.config;
+  S.meta        = data.meta;
+  S.months      = data.months;
+  S.monthStates = data.monthStates || {};
 
   const cur = nowKey();
   S.viewMonth = (cur >= S.config.startMonth) ? cur : S.config.startMonth;

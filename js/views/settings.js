@@ -1,7 +1,8 @@
 import { S } from '../state.js';
-import { fmt, money, wireMoney, parseKey, MONTHS } from '../utils.js';
+import { fmt, money, wireMoney, parseKey, MONTHS, MSHORT } from '../utils.js';
 import { paintIcons } from '../icons.js';
-import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta } from '../data.js';
+import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta,
+         monthState, saveMonthState, incomePending, billsUnpaid, savingsFor } from '../data.js';
 import * as DB from '../db.js';
 import { render } from '../app.js';
 import { renderWizard } from './wizard.js';
@@ -9,7 +10,7 @@ import { toast, confirmDialog, formModal } from '../ui.js';
 
 /** Bills plus savings must leave something to live on. The only invalid state. */
 function validate({ income, savingsTarget, bills, planned }) {
-  const inc = income ?? S.config.income;
+  const inc = income ?? (S.config.incomeSources || []).reduce((s, x) => s + x.amount, 0);
   const sav = savingsTarget ?? S.config.savingsTarget;
   const bl = bills ?? S.config.lockedBills;
   const locked = bl.reduce((s, b) => s + b.amount, 0);
@@ -118,6 +119,74 @@ function wishlistCard() {
     '<button class="addbill" id="addWish"><i class="ti ti-plus"></i>Add something</button></div>';
 }
 
+/** Two salaries, a bonus, freelance work. Each is ticked off when it
+ *  actually lands, because the dates move around. */
+function incomeCard(c) {
+  const k = S.viewMonth;
+  const st = monthState(k);
+  const list = S.config.incomeSources || [];
+  const total = list.reduce((s, x) => s + x.amount, 0);
+
+  return '<div class="card"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-coin"></i>Money in</div>' +
+    '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.received) +
+    (c.received !== total ? ' of ' + fmt(total) : '') + '</span></div>' +
+    (list.length
+      ? list.map((src, i) => {
+          const inYet = st.incomeReceived[src.id] !== false;
+          return '<div class="srcrow">' +
+            '<button class="tick' + (inYet ? ' on' : '') + '" data-src="' + src.id + '">' +
+            (inYet ? '<i class="ti ti-check"></i>' : '') + '</button>' +
+            '<span class="srcname">' + src.name +
+            '<span class="srcstate">' + (inYet ? 'received' : 'not in yet') + '</span></span>' +
+            '<span class="v">' + fmt(src.amount) + '</span>' +
+            '<button class="iconbtn srcdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
+            '</div>';
+        }).join('')
+      : '<div class="empty">No income sources yet.</div>') +
+    '<button class="addbill" id="addSrc"><i class="ti ti-plus"></i>Add an income source</button>' +
+    '<div class="fhint">Every new month starts with all of these ticked. Untick one when ' +
+    'it has not landed yet and the pool drops to what is actually there.</div>' +
+    '<div class="field-err" id="incomeErr" style="display:none;"></div></div>';
+}
+
+/** Everything that applies to this cycle only. */
+function thisMonthCard(c) {
+  const k = S.viewMonth;
+  const st = monthState(k);
+  const { m, y } = parseKey(k);
+  const bills = S.config.lockedBills;
+  const paidCount = bills.length - billsUnpaid(k).length;
+
+  return '<div class="card"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-calendar-stats"></i>' + MONTHS[m] + ' ' + y + ' only</div></div>' +
+
+    '<label class="flabel" style="margin-top:0;">Money left right now</label>' +
+    '<input id="sOverride" class="money" type="text" placeholder="leave blank to work it out" value="' +
+    (st.balanceOverride === null ? '' : fmt(st.balanceOverride)) + '" />' +
+    '<div class="fhint">Fill this in when you start mid-month, or when the real balance ' +
+    'has drifted from what the app worked out. Only unpaid bills come off it.</div>' +
+
+    '<label class="flabel">Savings this month</label>' +
+    '<input id="sSavMonth" class="money" type="text" placeholder="' + fmt(S.config.savingsTarget) +
+    '" value="' + (st.savingsOverride === null ? '' : fmt(st.savingsOverride)) + '" />' +
+    '<div class="fhint">Blank uses your usual target. Put 0 to skip saving this month.</div>' +
+
+    '<label class="flabel">Bills already paid · ' + paidCount + ' of ' + bills.length + '</label>' +
+    (bills.length
+      ? '<div class="paidlist">' + bills.map(b =>
+          '<button class="paidrow' + (st.billsPaid[b.id] ? ' on' : '') + '" data-bill="' + b.id + '">' +
+          '<span class="tick' + (st.billsPaid[b.id] ? ' on' : '') + '">' +
+          (st.billsPaid[b.id] ? '<i class="ti ti-check"></i>' : '') + '</span>' +
+          '<span class="srcname">' + b.name + '</span>' +
+          '<span class="v">' + fmt(b.amount) + '</span></button>').join('') + '</div>'
+      : '<div class="empty">No bills.</div>') +
+    '<div class="fhint">Only matters alongside a stated balance. Otherwise bills come off ' +
+    'either way, paid or not.</div>' +
+    '<button class="btn outline" id="resetMonth" style="width:100%;margin-top:12px;">' +
+    'Clear this month\'s overrides</button></div>';
+}
+
 function plannedCard() {
   const list = (S.config.planned || []).slice().sort((a, b) => a.due.localeCompare(b.due));
   const total = plannedFor(S.viewMonth).reduce((s, p) => s + p.amount, 0);
@@ -150,9 +219,8 @@ export function setView() {
     '<div class="meta">' + fmt(c.perDay) + ' / day<br>' +
     '<span style="color:var(--ink3);">changes apply straight away</span></div></div>' +
 
-    '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-coin"></i>Money in</div></div>' +
-    '<input id="sIncome" class="money" type="text" value="' + fmt(S.config.income) + '" />' +
-    '<div class="field-err" id="incomeErr" style="display:none;"></div></div>' +
+    incomeCard(c) +
+    thisMonthCard(c) +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-lock"></i>Locked bills</div>' +
     '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.locked) + '</span></div>' +
@@ -217,14 +285,96 @@ export function wireSet() {
     });
   };
 
-  bindNumber('sIncome', 'incomeErr', (v, dry, mode) => {
-    if (mode === 'current') return S.config.income;
-    if (v <= 0) return 'Income has to be more than zero.';
-    const err = validate({ income: v });
-    if (err) return err;
-    if (!dry) S.config.income = v;
-    return null;
+  // ---- income sources ----
+  const k = S.viewMonth;
+  const st = monthState(k);
+
+  document.querySelectorAll('.tick[data-src]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.src;
+      st.incomeReceived[id] = !(st.incomeReceived[id] !== false);
+      if (st.incomeReceived[id] !== false) delete st.incomeReceived[id];
+      await saveMonthState(k);
+      render();
+    };
   });
+
+  document.querySelectorAll('.srcdel').forEach(btn => {
+    btn.onclick = async () => {
+      const i = parseInt(btn.dataset.i, 10);
+      const removed = (S.config.incomeSources || [])[i];
+      if (!removed) return;
+      const next = S.config.incomeSources.filter((_, j) => j !== i);
+      const err = validate({ income: next.reduce((s, x) => s + x.amount, 0) });
+      if (err) { toast('Cannot remove it, ' + err.toLowerCase()); return; }
+      S.config.incomeSources = next;
+      await persist();
+      render();
+      toast('Removed ' + removed.name, async () => {
+        S.config.incomeSources.splice(i, 0, removed);
+        await persist();
+        render();
+      });
+    };
+  });
+
+  const addSrc = $('addSrc');
+  if (addSrc) addSrc.onclick = () => {
+    formModal({
+      title: 'Add an income source',
+      fields: [
+        { id: 'name', label: 'Whose, or what', placeholder: 'Keni salary' },
+        { id: 'amount', label: 'How much each month', placeholder: '0', money: true }
+      ],
+      submitLabel: 'Add',
+      onSubmit: ({ name, amount }) => {
+        if (!name) return 'Give it a name.';
+        if (amount <= 0) return 'Enter an amount above zero.';
+        S.config.incomeSources = (S.config.incomeSources || [])
+          .concat([{ id: 'src-' + Date.now(), name, amount }]);
+        persist().then(() => { render(); toast('Added ' + name); });
+        return null;
+      }
+    });
+  };
+
+  // ---- this month only ----
+  const ov = $('sOverride');
+  if (ov) ov.addEventListener('blur', async () => {
+    const raw = ov.value.trim();
+    st.balanceOverride = raw === '' ? null : money(raw);
+    await saveMonthState(k);
+    render();
+  });
+
+  const sm = $('sSavMonth');
+  if (sm) sm.addEventListener('blur', async () => {
+    const raw = sm.value.trim();
+    st.savingsOverride = raw === '' ? null : money(raw);
+    await saveMonthState(k);
+    render();
+  });
+
+  document.querySelectorAll('.paidrow').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.bill;
+      if (st.billsPaid[id]) delete st.billsPaid[id];
+      else st.billsPaid[id] = true;
+      await saveMonthState(k);
+      render();
+    };
+  });
+
+  const rm = $('resetMonth');
+  if (rm) rm.onclick = async () => {
+    st.balanceOverride = null;
+    st.savingsOverride = null;
+    st.incomeReceived = {};
+    st.billsPaid = {};
+    await saveMonthState(k);
+    render();
+    toast('Cleared this month\'s overrides');
+  };
 
   bindNumber('sSav', 'savErr', (v, dry, mode) => {
     if (mode === 'current') return S.config.savingsTarget;

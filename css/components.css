@@ -446,3 +446,38 @@ input.invalid{ border-color:#C4795E !important; }
 /* keep multi-part banner text as one flex item so the gap does not
    land either side of every <b> */
 .banner > span{ flex:1; min-width:0; }
+
+/* ---------------------------------------------------------- income sources */
+.srcrow{
+  display:flex; align-items:center; gap:10px; padding:9px 0; font-size:14px;
+}
+.srcrow + .srcrow{ border-top:1px dashed var(--line); }
+.srcname{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.srcstate{ font-size:11px; color:var(--ink3); }
+.srcrow .v{ font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.tick{
+  width:22px; height:22px; border-radius:7px; flex-shrink:0;
+  border:1px solid var(--line2); background:var(--card);
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; color:transparent; font-size:14px; padding:0;
+}
+.tick.on{ background:var(--sage); border-color:var(--sage); color:#fff; }
+
+.card.pending{ border-color:var(--brass-mid); background:var(--brass-bg); }
+.card.pending .card-head, .card.pending .card-head i{ color:#8A6526; }
+.card.pending .fhint{ color:#8A6526; }
+.card.pending .srcrow + .srcrow{ border-top-color:rgba(168,117,46,.25); }
+.gotit{ padding:7px 12px; font-size:12.5px; flex-shrink:0; }
+
+/* ---------------------------------------------------------- bills paid list */
+.paidlist{ display:flex; flex-direction:column; }
+.paidrow{
+  display:flex; align-items:center; gap:10px; padding:9px 0;
+  background:none; border:none; width:100%; cursor:pointer;
+  font-family:'Inter',sans-serif; font-size:14px; color:var(--ink); text-align:left;
+}
+.paidrow + .paidrow{ border-top:1px dashed var(--line); }
+.paidrow.on .srcname{ color:var(--ink3); text-decoration:line-through; }
+.paidrow .v{ font-variant-numeric:tabular-nums; color:var(--ink2); }
+.paidrow .tick{ pointer-events:none; }

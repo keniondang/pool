@@ -23,6 +23,8 @@ export const ICONS={
 'ti-shopping-bag':'<path d="M6 8h12l-1 12H7zM9 8V6a3 3 0 0 1 6 0v2"/>',
 'ti-parking':'<path d="M8 20V4h4.5a4.5 4.5 0 0 1 0 9H8"/>',
 'ti-gas-station':'<path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15M3 20h12M6 8h5M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V9l-3-3"/>',
+'ti-clock-hour-4':'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+'ti-calendar-stats':'<path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 17v-3M12 17v-5M16 17v-2"/>',
 'ti-bookmark':'<path d="M7 4h10v16l-5-4-5 4z"/>',
 'ti-chart-line':'<path d="M4 4v16h16"/><path d="M7 15l4-5 3 3 5-7"/>',
 'ti-activity':'<path d="M3 12h4l3 7 4-14 3 7h4"/>',

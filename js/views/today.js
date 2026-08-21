@@ -1,7 +1,8 @@
 import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey,
          catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
-import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor } from '../data.js';
+import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor,
+         monthState, saveMonthState, incomePending, savingsFor } from '../data.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
@@ -20,13 +21,20 @@ function pace(c) {
   return (c.spent / (c.pool / c.days)) - c.ref;
 }
 
-function paceLine(c) {
+function paceLine(c, k) {
   const p = pace(c);
+  const pending = incomePending(k);
   const spentPct = Math.min(100, Math.max(0, c.spent / c.pool * 100));
   const monthPct = Math.min(100, c.ref / c.days * 100);
   const facts = Math.round(spentPct) + '% of the pool gone, ' +
                 Math.round(monthPct) + '% through the month. ';
 
+  if (c.available <= 0 && pending.length) {
+    // Not spent, just not arrived. Different problem, different sentence.
+    const owed = pending.reduce((s, x) => s + x.amount, 0);
+    return { over: true, spentPct, monthPct,
+      text: '<b>Waiting on ' + fmt(owed) + '</b> before there is anything to spend.' };
+  }
   if (c.available <= 0) {
     return { over: true, spentPct, monthPct,
       text: '<b>Pool is spent, ' + c.daysLeft + ' days to go.</b>' };
@@ -94,6 +102,24 @@ function upcomingCard(k, c) {
   return out.join('');
 }
 
+/** Only appears while something has not landed. Marking it received is
+ *  one tap and the daily number jumps immediately. */
+function pendingIncomeCard(k) {
+  const pending = incomePending(k);
+  if (!pending.length) return '';
+  const total = pending.reduce((s, x) => s + x.amount, 0);
+  return '<div class="card pending"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-clock-hour-4"></i>Not in yet</div>' +
+    '<span style="font-variant-numeric:tabular-nums;">' + fmt(total) + '</span></div>' +
+    pending.map(src =>
+      '<div class="srcrow"><span class="srcname">' + src.name + '</span>' +
+      '<span class="v">' + fmt(src.amount) + '</span>' +
+      '<button class="btn outline gotit" data-src="' + src.id + '">Got it</button></div>'
+    ).join('') +
+    '<div class="fhint">Your daily number is working from what has actually landed.</div>' +
+    '</div>';
+}
+
 function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
@@ -120,7 +146,7 @@ export function todayView() {
     const p = new Date(y, m - 1, 1);
     return key(p.getFullYear(), p.getMonth()) < S.config.startMonth;
   })();
-  const pl = paceLine(c);
+  const pl = paceLine(c, k);
 
   let banner = '';
   if (c.drawn > 0) {
@@ -171,6 +197,7 @@ export function todayView() {
     '<i class="ti ti-pencil-plus"></i>Log a spend</button>' +
 
     banner +
+    pendingIncomeCard(k) +
     upcomingCard(k, c) +
 
     (dayEntries.length
@@ -183,17 +210,18 @@ export function todayView() {
     stripCard(k, c) +
 
     '<div class="handled"><i class="ti ti-lock"></i><span><b>' +
-    fmt(c.locked + S.config.savingsTarget) + '</b> in bills and savings already covered</span></div>' +
+    fmt(c.locked + c.savings) + '</b> in bills and savings already covered</span></div>' +
 
     '<div class="card"><div class="card-head"><div class="lhs">' +
     '<i class="ti ti-shield-check"></i>Savings</div></div>' +
     '<div class="kv" style="padding-top:0;"><span>Balance</span>' +
     '<span class="v serif" style="font-size:17px;">' + fmt(S.meta.savingsBalance) + '</span></div>' +
     '<div class="kv"><span>Adding this month</span><span class="v">' +
-    fmt(S.config.savingsTarget - c.drawn) + '</span></div>' +
-    (c.available <= 0
+    fmt(c.savings - c.drawn) + '</span></div>' +
+    (c.available <= 0 && !incomePending(k).length
       ? '<div class="banner warn" style="margin:12px 0 0;"><i class="ti ti-arrow-down-right"></i>' +
-        'The pool is empty with ' + c.daysLeft + ' days to go. This is the moment to use savings.</div>'
+        '<span>The pool is empty with ' + c.daysLeft +
+        ' days to go. This is the moment to use savings.</span></div>'
       : '') +
     '<div style="margin-top:10px;"><button class="btn quiet" id="drawT">Use savings this month</button></div>' +
     '</div></div>';
@@ -220,6 +248,16 @@ export function wireToday() {
   $('dNext').onclick = () => shiftDay(1);
   $('openLog').onclick = () => openLogSheet();
   $('drawT').onclick = () => openDraw(S.viewMonth);
+
+  document.querySelectorAll('.gotit').forEach(btn => {
+    btn.onclick = async () => {
+      const st = monthState(S.viewMonth);
+      delete st.incomeReceived[btn.dataset.src];
+      await saveMonthState(S.viewMonth);
+      render();
+      toast('Marked as received');
+    };
+  });
 }
 
 /** Opens once per page load, then only when the Log button is pressed. */

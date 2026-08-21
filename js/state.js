@@ -4,6 +4,7 @@ export const S = {
   config: null,
   meta: null,
   months: {},
+  monthStates: {},
   screen: 'today',
   viewMonth: null,
   selDay: null,
