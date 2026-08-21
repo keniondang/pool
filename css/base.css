@@ -1,0 +1,30 @@
+  :root{
+    --paper:#FBF9F4;
+    --card:#FFFFFF;
+    --ink:#1A231D;
+    --ink2:#5C6560;
+    --ink3:#9AA09A;
+    --line:#E8E4DA;
+    --line2:#D6D1C4;
+    --sage:#3F7358;
+    --sage-bg:#E9F1EB;
+    --sage-mid:#B4CFBE;
+    --brass:#A8752E;
+    --brass-bg:#F7EEDF;
+    --brass-mid:#E3C79A;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);color:var(--ink);
+    font-family:'Inter',sans-serif;font-size:15px;
+    -webkit-font-smoothing:antialiased;min-height:100vh;
+  }
+  .num{font-variant-numeric:tabular-nums;}
+  .serif{font-family:'Fraunces',serif;font-variant-numeric:tabular-nums;}
+  .wrap{max-width:460px;margin:0 auto;padding:18px 16px 100px;}
+  h1{font-family:'Fraunces',serif;font-weight:500;font-size:21px;margin:0;letter-spacing:-.01em;}
+  .eyebrow{font-size:11px;letter-spacing:.09em;color:var(--ink3);text-transform:uppercase;margin-bottom:3px;font-weight:500;}
+
+  .topbar{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;}
+  .topbar .meta{font-size:13px;color:var(--ink2);text-align:right;line-height:1.4;}
