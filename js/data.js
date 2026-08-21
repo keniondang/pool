@@ -36,6 +36,18 @@ export async function saveMeta(){ await DB.saveMeta(S.config.poolId, S.meta); }
  *  the daily number on the spot. */
 /** Per-month state. Defaults mean an untouched month behaves exactly as
  *  before: all income in, no bills ticked off, savings from config. */
+/** Whole months before this one are read-only. You can still fix any day
+ *  inside the current month, which is where "I forgot to log Tuesday"
+ *  actually happens. */
+export function isLocked(k){ return k < nowKey(); }
+
+/** The real calendar day, which is what "today" must always mean no
+ *  matter which day you are looking at. */
+export function realDay(k){
+  const {y,m}=parseKey(k);
+  return nowKey()===k ? new Date().getDate() : dim(y,m);
+}
+
 export function monthState(k){
   if(!S.monthStates[k]){
     S.monthStates[k] = {
@@ -101,7 +113,7 @@ export function calc(k,forDay){
   const isNow=nowKey()===k;
   const today=isNow?real.getDate():null;
   let ref=forDay;
-  if(!ref) ref=isNow?real.getDate():1;
+  if(!ref) ref=isNow?real.getDate():days;
   if(ref<1)ref=1; if(ref>days)ref=days;
   const daysLeft=days-ref+1;
   const daysGone=ref-1;
@@ -201,7 +213,12 @@ export function shiftDay(delta){
     S.viewMonth=pk;S.curDay=dim(p.getFullYear(),p.getMonth());
   } else if(d>days){
     const n=new Date(y,m+1,1);
-    S.viewMonth=key(n.getFullYear(),n.getMonth());S.curDay=1;
-  } else S.curDay=d;
+    const nk=key(n.getFullYear(),n.getMonth());
+    if(nk>nowKey()) return;          // no wandering into next month
+    S.viewMonth=nk;S.curDay=1;
+  } else {
+    if(S.viewMonth===nowKey() && d>new Date().getDate()) return;  // nor past today
+    S.curDay=d;
+  }
   render();
 }

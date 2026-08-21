@@ -481,3 +481,24 @@ input.invalid{ border-color:#C4795E !important; }
 .paidrow.on .srcname{ color:var(--ink3); text-decoration:line-through; }
 .paidrow .v{ font-variant-numeric:tabular-nums; color:var(--ink2); }
 .paidrow .tick{ pointer-events:none; }
+
+/* ---------------------------------------------------------- closed months */
+.hero.closed{ background:var(--surface, var(--card)); border-color:var(--line2); }
+.hero.closed .hero-label{ color:var(--ink2); }
+.hero.closed .hero-num{ color:var(--ink); }
+.hero.closed .hero-num .cur{ color:var(--ink3); font-size:14px; }
+.hero.closed .herostats{ border-top-color:var(--line); }
+.hero.closed .herostats .l{ color:var(--ink3); }
+.hero.closed .herostats .v{ color:var(--ink); }
+
+.banner.lockbar{ background:var(--paper); color:var(--ink2); border:1px solid var(--line); }
+.banner.lockbar i{ color:var(--ink3); }
+
+.viewonly{
+  font-family:'Inter',sans-serif; font-size:10.5px; font-weight:500;
+  letter-spacing:.03em; text-transform:uppercase; color:var(--ink3);
+  background:var(--paper); border:1px solid var(--line);
+  padding:2px 6px; border-radius:6px; vertical-align:1px;
+}
+.navbtn:disabled{ opacity:.28; }
+.sheet-sub b{ color:var(--ink2); }

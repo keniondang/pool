@@ -2,7 +2,8 @@ import { S } from '../state.js';
 import { fmt, money, wireMoney, parseKey, MONTHS, MSHORT } from '../utils.js';
 import { paintIcons } from '../icons.js';
 import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta,
-         monthState, saveMonthState, incomePending, billsUnpaid, savingsFor } from '../data.js';
+         monthState, saveMonthState, incomePending, billsUnpaid, savingsFor,
+         isLocked } from '../data.js';
 import * as DB from '../db.js';
 import { render } from '../app.js';
 import { renderWizard } from './wizard.js';
@@ -220,7 +221,7 @@ export function setView() {
     '<span style="color:var(--ink3);">changes apply straight away</span></div></div>' +
 
     incomeCard(c) +
-    thisMonthCard(c) +
+    (isLocked(S.viewMonth) ? '' : thisMonthCard(c)) +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-lock"></i>Locked bills</div>' +
     '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.locked) + '</span></div>' +

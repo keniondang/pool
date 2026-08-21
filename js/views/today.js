@@ -2,7 +2,7 @@ import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey,
          catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
 import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor,
-         monthState, saveMonthState, incomePending, savingsFor } from '../data.js';
+         monthState, saveMonthState, incomePending, savingsFor, isLocked } from '../data.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
@@ -134,96 +134,139 @@ function daysSince(isoDate) {
 
 export function todayView() {
   ensureDay();
-  const k = S.viewMonth, c = calc(k, S.curDay), { y, m } = parseKey(k);
+  const k = S.viewMonth;
+  const { y, m } = parseKey(k);
+  const locked = isLocked(k);
+
+  // The hero always speaks for the real day. Walking back to yesterday
+  // must not change what is safe to spend now.
+  const c = calc(k);
   const real = new Date();
+  const isCurrent = nowKey() === k;
+
   const dnum = S.curDay;
   const tIso = iso(y, m, dnum);
   const dayEntries = md(k).entries.filter(e => e.date === tIso);
-  const spentToday = dayEntries.reduce((s, e) => s + e.amount, 0);
+  const dayTotal = dayEntries.reduce((s, e) => s + e.amount, 0);
+  const todayTotal = md(k).entries
+    .filter(e => e.date === iso(y, m, c.ref))
+    .reduce((s, e) => s + e.amount, 0);
+
   const dObj = new Date(y, m, dnum);
-  const isToday = (nowKey() === k && real.getDate() === dnum);
+  const viewingToday = isCurrent && dnum === real.getDate();
   const prevBlocked = dnum === 1 && (() => {
     const p = new Date(y, m - 1, 1);
     return key(p.getFullYear(), p.getMonth()) < S.config.startMonth;
   })();
+  const nextBlocked = isCurrent
+    ? dnum >= real.getDate()
+    : (() => { const n = new Date(y, m + 1, 1);
+               return key(n.getFullYear(), n.getMonth()) > nowKey() && dnum >= c.days; })();
+
   const pl = paceLine(c, k);
+  const over = todayTotal > c.perDay;
+  const pct = c.perDay > 0 ? Math.min(100, todayTotal / c.perDay * 100) : 0;
 
   let banner = '';
-  if (c.drawn > 0) {
-    banner = '<div class="banner warn"><i class="ti ti-arrow-down-right"></i>You pulled ' +
-      fmt(c.drawn) + ' from savings this month. Bills and this month\'s target are still covered.</div>';
-  } else if (isToday && real.getHours() >= 21 && spentToday === 0) {
-    banner = '<div class="banner warn"><i class="ti ti-moon"></i>Nothing logged today. ' +
-      'Add what you spent before you sleep.</div>';
+  if (locked) {
+    banner = '<div class="banner lockbar"><i class="ti ti-lock"></i><span>' +
+      MONTHS[m] + ' is closed. You can look, but not change anything.</span></div>';
+  } else if (c.drawn > 0) {
+    banner = '<div class="banner warn"><i class="ti ti-arrow-down-right"></i><span>You pulled ' +
+      fmt(c.drawn) + ' from savings this month. Bills and this month\'s target are still covered.</span></div>';
+  } else if (viewingToday && real.getHours() >= 21 && todayTotal === 0) {
+    banner = '<div class="banner warn"><i class="ti ti-moon"></i><span>Nothing logged today. ' +
+      'Add what you spent before you sleep.</span></div>';
   }
 
-  return '<div class="wrap">' +
+  const header =
     '<div class="topbar"><div><div class="eyebrow">Pool</div>' +
-    '<h1>' + (isToday ? 'Today' : MONTHS[m] + ' ' + y) + '</h1></div>' +
+    '<h1>' + (isCurrent ? 'Today' : MONTHS[m] + ' ' + y) + '</h1></div>' +
     '<div class="meta">' +
-    dObj.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
-    '<br><span style="color:var(--ink3);">' + c.daysLeft + ' days left in ' + MSHORT[m] +
-    '</span></div></div>' +
+    (isCurrent
+      ? real.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+        '<br><span style="color:var(--ink3);">' + c.daysLeft + ' days left in ' + MSHORT[m] + '</span>'
+      : 'closed month<br><span style="color:var(--ink3);">' + c.days + ' days</span>') +
+    '</div></div>';
 
+  const daynav =
     '<div class="daynav">' +
       '<button class="navbtn" id="dPrev"' + (prevBlocked ? ' disabled' : '') + '>' +
       '<i class="ti ti-chevron-left"></i></button>' +
       '<div class="daynav-mid"><span class="dn">' +
       dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
+      (viewingToday ? '' : ' <span class="viewonly">' + (locked ? 'closed' : 'past day') + '</span>') +
       '</span><span class="ds">' +
-      (spentToday > 0 ? fmt(spentToday) + ' logged' : 'nothing logged') + '</span></div>' +
-      '<button class="navbtn" id="dNext"><i class="ti ti-chevron-right"></i></button>' +
-    '</div>' +
+      (dayTotal > 0 ? fmt(dayTotal) + ' logged' : 'nothing logged') + '</span></div>' +
+      '<button class="navbtn" id="dNext"' + (nextBlocked ? ' disabled' : '') + '>' +
+      '<i class="ti ti-chevron-right"></i></button>' +
+    '</div>';
 
-    // Tinted fill and a month-length bar, so it cannot be mistaken for the
-    // white sheet header that measures the day.
-    '<div class="hero tint' + (pl.over ? ' warn' : '') + '">' +
-    '<div class="hero-label">Safe to spend today</div>' +
-    '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
-    '<div class="herostats">' +
-      '<div><span class="l">' + (c.available < 0 ? 'Over pool' : 'Pool left') + '</span>' +
-      '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
-      '<div><span class="l">Spent today</span><span class="v">' + fmt(spentToday) + '</span></div>' +
-      '<div><span class="l">' + (spentToday > c.perDay ? 'Over by' : 'To go') + '</span>' +
-      '<span class="v">' + fmt(Math.abs(c.perDay - spentToday)) + '</span></div>' +
-    '</div>' +
-    '<div class="mb-head"><span>Month spent</span><span>day ' + c.ref + ' of ' + c.days + '</span></div>' +
-    '<div class="monthbar"><span class="mb-fill" style="width:' + pl.spentPct + '%"></span>' +
-    '<span class="mb-tick" style="left:' + pl.monthPct + '%"></span></div>' +
-    '<div class="pace">' + pl.text + '</div>' +
-    '</div>' +
+  // A closed month gets a summary instead of a daily number, because
+  // "safe to spend today" is meaningless once the month is over.
+  const hero = locked
+    ? '<div class="hero closed"><div class="hero-label">' + MONTHS[m] + ' finished</div>' +
+      '<div class="hero-num">' + fmt(c.spent) + '<span class="cur">spent</span></div>' +
+      '<div class="herostats">' +
+        '<div><span class="l">Pool was</span><span class="v">' + fmt(c.pool) + '</span></div>' +
+        '<div><span class="l">' + (c.available >= 0 ? 'Left over' : 'Over by') + '</span>' +
+        '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
+        '<div><span class="l">Big days</span><span class="v">' + c.big + '</span></div>' +
+      '</div></div>'
+    : '<div class="hero tint' + (pl.over ? ' warn' : '') + '">' +
+      '<div class="hero-label">Safe to spend today</div>' +
+      '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
+      '<div class="herostats">' +
+        '<div><span class="l">' + (c.available < 0 ? 'Over pool' : 'Pool left') + '</span>' +
+        '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
+        '<div><span class="l">Spent today</span><span class="v">' + fmt(todayTotal) + '</span></div>' +
+        '<div><span class="l">' + (over ? 'Over by' : 'To go') + '</span>' +
+        '<span class="v">' + fmt(Math.abs(c.perDay - todayTotal)) + '</span></div>' +
+      '</div>' +
+      '<div class="mb-head"><span>Month spent</span><span>day ' + c.ref + ' of ' + c.days + '</span></div>' +
+      '<div class="monthbar"><span class="mb-fill" style="width:' + pl.spentPct + '%"></span>' +
+      '<span class="mb-tick" style="left:' + pl.monthPct + '%"></span></div>' +
+      '<div class="pace">' + pl.text + '</div></div>';
 
-    '<button class="btn solid logcta" id="openLog" style="background:' + catColor(S.selCat) + ';">' +
-    '<i class="ti ti-pencil-plus"></i>Log a spend</button>' +
+  return '<div class="wrap">' + header + daynav + hero +
+
+    (locked ? '' :
+      '<button class="btn solid logcta" id="openLog" style="background:' + catColor(S.selCat) + ';">' +
+      '<i class="ti ti-pencil-plus"></i>Log a spend' +
+      (viewingToday ? '' : ' for ' + dObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })) +
+      '</button>') +
 
     banner +
-    pendingIncomeCard(k) +
-    upcomingCard(k, c) +
+    (locked ? '' : pendingIncomeCard(k)) +
+    (locked ? '' : upcomingCard(k, c)) +
 
     (dayEntries.length
       ? '<div class="card"><div class="card-head">' +
-        '<div class="lhs"><i class="ti ti-list"></i>Logged this day</div>' +
-        '<span style="font-variant-numeric:tabular-nums;">' + fmt(spentToday) + '</span></div>' +
-        entryRows(dayEntries) + '</div>'
+        '<div class="lhs"><i class="ti ti-list"></i>Logged ' +
+        (viewingToday ? 'today' : 'this day') + '</div>' +
+        '<span style="font-variant-numeric:tabular-nums;">' + fmt(dayTotal) + '</span></div>' +
+        entryRows(dayEntries, locked) + '</div>'
       : '') +
 
     stripCard(k, c) +
 
     '<div class="handled"><i class="ti ti-lock"></i><span><b>' +
-    fmt(c.locked + c.savings) + '</b> in bills and savings already covered</span></div>' +
+    fmt(c.locked + c.savings) + '</b> in bills and savings ' +
+    (locked ? 'were covered' : 'already covered') + '</span></div>' +
 
     '<div class="card"><div class="card-head"><div class="lhs">' +
     '<i class="ti ti-shield-check"></i>Savings</div></div>' +
     '<div class="kv" style="padding-top:0;"><span>Balance</span>' +
     '<span class="v serif" style="font-size:17px;">' + fmt(S.meta.savingsBalance) + '</span></div>' +
-    '<div class="kv"><span>Adding this month</span><span class="v">' +
-    fmt(c.savings - c.drawn) + '</span></div>' +
-    (c.available <= 0 && !incomePending(k).length
+    '<div class="kv"><span>' + (locked ? 'Added that month' : 'Adding this month') + '</span>' +
+    '<span class="v">' + fmt(c.savings - c.drawn) + '</span></div>' +
+    (!locked && c.available <= 0 && !incomePending(k).length
       ? '<div class="banner warn" style="margin:12px 0 0;"><i class="ti ti-arrow-down-right"></i>' +
         '<span>The pool is empty with ' + c.daysLeft +
         ' days to go. This is the moment to use savings.</span></div>'
       : '') +
-    '<div style="margin-top:10px;"><button class="btn quiet" id="drawT">Use savings this month</button></div>' +
+    (locked ? '' :
+      '<div style="margin-top:10px;"><button class="btn quiet" id="drawT">Use savings this month</button></div>') +
     '</div></div>';
 }
 
@@ -231,14 +274,15 @@ function curSafe(c) {
   return S.curDay || (c.isNow ? new Date().getDate() : 1);
 }
 
-function entryRows(list) {
+function entryRows(list, locked) {
   return list.map(e =>
     '<div class="entry">' +
     '<span class="amt">' + fmt(e.amount) + '</span>' +
     '<span class="cat" style="background:' + catTint(catOf(e)) + ';color:' + catColor(catOf(e)) + '">' +
     '<i class="ti ' + catIcon(catOf(e)) + '"></i>' + catLabel(catOf(e)) + '</span>' +
     '<span class="note">' + (e.note || '') + '</span>' +
-    '<button class="iconbtn del" data-id="' + e.id + '"><i class="ti ti-trash"></i></button></div>'
+    (locked ? '' : '<button class="iconbtn del" data-id="' + e.id + '"><i class="ti ti-trash"></i></button>') +
+    '</div>'
   ).join('');
 }
 
@@ -246,8 +290,8 @@ export function wireToday() {
   const $ = id => document.getElementById(id);
   $('dPrev').onclick = () => shiftDay(-1);
   $('dNext').onclick = () => shiftDay(1);
-  $('openLog').onclick = () => openLogSheet();
-  $('drawT').onclick = () => openDraw(S.viewMonth);
+  if ($('openLog')) $('openLog').onclick = () => openLogSheet();
+  if ($('drawT')) $('drawT').onclick = () => openDraw(S.viewMonth);
 
   document.querySelectorAll('.gotit').forEach(btn => {
     btn.onclick = async () => {
@@ -262,7 +306,7 @@ export function wireToday() {
 
 /** Opens once per page load, then only when the Log button is pressed. */
 export function maybeAutoOpen() {
-  if (autoOpened || !S.config) return;
+  if (autoOpened || !S.config || isLocked(S.viewMonth)) return;
   autoOpened = true;
   openLogSheet();
 }
@@ -321,7 +365,7 @@ export function openLogSheet() {
     if (log) log.onclick = async () => {
       const raw = money(amt.value);
       if (raw <= 0) return;
-      const c = calc(k, S.curDay);
+      const c = calc(k);
       const noteEl = q('#note');
       const entry = {
         id: 'e' + Date.now(), amount: raw,
@@ -343,12 +387,11 @@ export function openLogSheet() {
 }
 
 function sheetHeader(k) {
-  const c = calc(k, S.curDay);
+  const c = calc(k);
   const { y, m } = parseKey(k);
   const dObj = new Date(y, m, S.curDay);
-  const tIso = iso(y, m, S.curDay);
   const spentToday = md(k).entries
-    .filter(e => e.date === tIso)
+    .filter(e => e.date === iso(y, m, c.ref))
     .reduce((s, e) => s + e.amount, 0);
   const pct = c.perDay > 0 ? Math.min(100, spentToday / c.perDay * 100) : 0;
   const over = spentToday > c.perDay;
@@ -357,8 +400,9 @@ function sheetHeader(k) {
       '<div class="sheet-label">Safe to spend today</div>' +
       '<div class="sheet-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
       '<div class="sheet-sub">' + fmt(c.available) + ' left in the pool · ' +
-        c.daysLeft + ' days left · ' +
-        dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
+        c.daysLeft + ' days left' +
+        (S.curDay === c.ref ? '' :
+          ' · <b>logging ' + dObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</b>') +
       '</div>' +
     '</div>' +
     '<button class="sheet-x"><i class="ti ti-x"></i></button></div>' +

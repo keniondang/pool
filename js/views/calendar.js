@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { MONTHS, DOW, CATS, fmt, short, parseKey, key, nowKey, dim, firstDow,
          catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
-import { md, calc } from '../data.js';
+import { md, calc, isLocked } from '../data.js';
 import { render } from '../app.js';
 
 export function calView(){
@@ -27,7 +27,7 @@ export function calView(){
   '<div class="card">'+
   '<div class="monthnav"><button class="navbtn" id="pm"'+(prevK<S.config.startMonth?' disabled':'')+'><i class="ti ti-chevron-left"></i></button>'+
   '<span class="name">'+MONTHS[m]+' '+y+'</span>'+
-  '<button class="navbtn" id="nm"><i class="ti ti-chevron-right"></i></button></div>'+
+  '<button class="navbtn" id="nm"'+(nextK>nowKey()?' disabled':'')+'><i class="ti ti-chevron-right"></i></button></div>'+
   '<div class="dow">'+DOW.map(d=>'<div>'+d[0]+'</div>').join('')+'</div>'+
   '<div class="cal">'+cells+'</div>'+
   '<div class="legend">'+
@@ -75,7 +75,9 @@ export function dayPanel(k,c,d){
     '<span class="s">'+(info?fmt(info.total)+' spent':'nothing logged')+'</span></div>'+
     (items.length?items.map(e=>'<div class="entry"><span class="amt">'+fmt(e.amount)+'</span>'+
       '<span class="cat" style="background:'+catTint(catOf(e))+';color:'+catColor(catOf(e))+'"><i class="ti '+catIcon(catOf(e))+'"></i>'+catLabel(catOf(e))+'</span>'+
-      '<span class="note">'+(e.note||'')+'</span><button class="iconbtn del" data-id="'+e.id+'"><i class="ti ti-trash"></i></button></div>').join('')
+      '<span class="note">'+(e.note||'')+'</span>'+
+      (isLocked(k)?'':'<button class="iconbtn del" data-id="'+e.id+'"><i class="ti ti-trash"></i></button>')+
+      '</div>').join('')
       :'<div class="empty">Nothing logged on this day.</div>')+
     '</div>';
 }
@@ -84,7 +86,10 @@ export function wireCal(){
   const $=id=>document.getElementById(id);
   const k=S.viewMonth,{y,m}=parseKey(k);
   $('pm').onclick=()=>{const p=new Date(y,m-1,1);S.viewMonth=key(p.getFullYear(),p.getMonth());S.selDay=null;render();};
-  $('nm').onclick=()=>{const p=new Date(y,m+1,1);S.viewMonth=key(p.getFullYear(),p.getMonth());S.selDay=null;render();};
+  $('nm').onclick=()=>{const p=new Date(y,m+1,1);
+    const nk=key(p.getFullYear(),p.getMonth());
+    if(nk>nowKey()) return;
+    S.viewMonth=nk;S.selDay=null;render();};
   document.querySelectorAll('.cell[data-d]').forEach(c=>c.onclick=()=>{
     const d=+c.dataset.d;S.selDay=(S.selDay===d)?null:d;
     if(S.selDay)S.curDay=S.selDay;

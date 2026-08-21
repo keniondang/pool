@@ -1,7 +1,7 @@
 import { S } from './state.js';
 import { wireMoney } from './utils.js';
 import { paintIcons } from './icons.js';
-import { md, dropEntry, pushEntry, boot } from './data.js';
+import { md, dropEntry, pushEntry, boot, isLocked } from './data.js';
 import { fmt, catLabel } from './utils.js';
 import { toast } from './ui.js';
 import { todayView, wireToday, maybeAutoOpen } from './views/today.js';
@@ -27,7 +27,7 @@ document.addEventListener('click', async function(e){
   const del=t.closest('.del');
   if(del){
     const id=del.getAttribute('data-id'), k=S.viewMonth;
-    if(!k||!id) return;
+    if(!k||!id||isLocked(k)) return;
     const list=md(k).entries;
     const idx=list.findIndex(en=>en.id===id);
     if(idx<0) return;
