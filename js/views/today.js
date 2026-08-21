@@ -1,8 +1,7 @@
 import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey,
          catColor, catTint, catIcon, catLabel, catOf } from '../utils.js';
-import { md, calc, saveMonth, ensureDay, shiftDay } from '../data.js';
-import { sSet } from '../storage.js';
+import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay } from '../data.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast } from '../ui.js';
@@ -104,12 +103,12 @@ export function wireToday(){
   });
   $('logBtn').onclick=async()=>{
     const raw=money($('amt').value);if(raw<=0)return;
-    md(k).entries.push({id:'e'+Date.now(),amount:raw,note:$('note').value.trim(),cat:S.selCat,
+    await pushEntry(k, {id:'e'+Date.now(),amount:raw,note:$('note').value.trim(),cat:S.selCat,
       date:iso(y,m,dnum),snap:Math.round(c.perDay)});
     S.meta.lastAmounts = S.meta.lastAmounts || {};
     S.meta.lastAmounts[S.selCat] = raw;
-    await sSet('meta', S.meta);
-    await saveMonth(k);render();
+    await saveMeta();
+    render();
   };
   // The one place a modal earns its interruption: this permanently moves
   // money out of the cushion, so it states the consequence before asking.
@@ -156,8 +155,7 @@ function openDraw(k, y, m, dnum){
               'Rent, bills and this month\'s savings target are unaffected either way.',
         confirmLabel: 'Move it',
         onYes: async () => {
-          md(k).draws.push({ id:'d'+Date.now(), amount, date: iso(y, m, dnum) });
-          await saveMonth(k);
+          await pushDraw(k, { id:'d'+Date.now(), amount, date: iso(y, m, dnum) });
           render();
           toast('Moved ' + fmt(amount) + ' from savings');
         }

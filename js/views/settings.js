@@ -1,8 +1,8 @@
 import { S } from '../state.js';
-import { sGet, sSet, sList } from '../storage.js';
 import { fmt, money, wireMoney, parseKey, MONTHS } from '../utils.js';
 import { paintIcons } from '../icons.js';
-import { calc, boot, plannedFor, md, saveMonth } from '../data.js';
+import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta } from '../data.js';
+import * as DB from '../db.js';
 import { render } from '../app.js';
 import { renderWizard } from './wizard.js';
 import { toast, confirmDialog, formModal } from '../ui.js';
@@ -27,7 +27,7 @@ function plural(n, one, many) {
 }
 
 async function persist() {
-  await sSet('config', S.config);
+  await saveConfig();
 }
 
 const COOL_DAYS = 30;
@@ -239,7 +239,7 @@ export function wireSet() {
   if (bal) {
     bal.addEventListener('blur', async () => {
       S.meta.savingsBalance = money(bal.value);
-      await sSet('meta', S.meta);
+      await saveMeta();
       render();
     });
   }
@@ -351,12 +351,11 @@ export function wireSet() {
       if (!target) return;
       const k = target.due.slice(0, 7);
       const before = calc(k, S.curDay);
-      md(k).entries.push({
+      await pushEntry(k, {
         id: 'e' + Date.now(), amount: target.amount, note: target.name,
         cat: 'others', date: target.due, snap: Math.round(before.perDay)
       });
       S.config.planned = S.config.planned.filter(p => p !== target);
-      await saveMonth(k);
       await persist();
       render();
       toast('Logged ' + fmt(target.amount) + ' · ' + target.name);
@@ -461,12 +460,11 @@ export function wireSet() {
       const before = calc(k, S.curDay);
       const { y, m } = parseKey(k);
       const day = String(S.curDay || 1).padStart(2, '0');
-      md(k).entries.push({
+      await pushEntry(k, {
         id: 'e' + Date.now(), amount: target.amount, note: target.name,
         cat: 'shopping', date: k + '-' + day, snap: Math.round(before.perDay)
       });
       S.config.wishlist = S.config.wishlist.filter(w => w !== target);
-      await saveMonth(k);
       await persist();
       render();
       toast('Logged ' + fmt(target.amount) + ' · ' + target.name);
@@ -475,10 +473,9 @@ export function wireSet() {
 
   // ---- backup ----
   $('expBtn').onclick = async () => {
-    const keys = await sList(), dump = {};
-    for (const kk of keys) dump[kk] = await sGet(kk);
+    const dump = { config: S.config, meta: S.meta, months: S.months };
     const blob = new Blob(
-      [JSON.stringify({ v: 1, exported: new Date().toISOString(), data: dump }, null, 2)],
+      [JSON.stringify({ v: 2, exported: new Date().toISOString(), data: dump }, null, 2)],
       { type: 'application/json' }
     );
     const a = document.createElement('a');
@@ -503,30 +500,46 @@ export function wireSet() {
       confirmDialog({
         title: 'That file could not be read',
         body: 'It does not look like a Pool backup. Nothing has been changed.',
-        confirmLabel: 'OK',
-        onYes: () => {}
+        confirmLabel: 'OK', onYes: () => {}
       });
       return;
     }
 
-    const entryCount = Object.keys(parsed.data)
+    // v1 files came from the localStorage version; v2 from this one.
+    const d = parsed.data;
+    const inConfig = d.config || d['config'];
+    const inMeta = d.meta || d['meta'];
+    const inMonths = d.months || Object.keys(d)
       .filter(k => k.startsWith('month:'))
-      .reduce((n, k) => n + ((parsed.data[k] && parsed.data[k].entries) || []).length, 0);
-    const mineCount = Object.keys(S.months)
+      .reduce((o, k) => (o[k.slice(6)] = d[k], o), {});
+
+    if (!inConfig || !inMonths) {
+      ev.target.value = '';
+      confirmDialog({
+        title: 'That backup is missing data',
+        body: 'Nothing has been changed.', confirmLabel: 'OK', onYes: () => {}
+      });
+      return;
+    }
+
+    const incoming = Object.keys(inMonths)
+      .reduce((n, k) => n + ((inMonths[k] && inMonths[k].entries) || []).length, 0);
+    const mine = Object.keys(S.months)
       .reduce((n, k) => n + (S.months[k].entries || []).length, 0);
 
     confirmDialog({
       title: 'Replace everything with this backup?',
-      body: 'Your current data (<b>' + plural(mineCount, 'entry', 'entries') + '</b> and your setup) will be ' +
-            'deleted and replaced with the backup (<b>' + plural(entryCount, 'entry', 'entries') + '</b>), ' +
-            'exported ' + String(parsed.exported || '').slice(0, 10) + '. This cannot be undone.',
+      body: 'This replaces the shared pool, not just this device. Your current ' +
+            'data (<b>' + plural(mine, 'entry', 'entries') + '</b>) will be deleted and ' +
+            'replaced with the backup (<b>' + plural(incoming, 'entry', 'entries') + '</b>), ' +
+            'exported ' + String(parsed.exported || '').slice(0, 10) + '. ' +
+            'Your girlfriend will see this too. It cannot be undone.',
       confirmLabel: 'Replace',
       danger: true,
       onYes: async () => {
-        const old = await sList();
-        for (const kk of old) { try { await window.storage.delete(kk); } catch (e) {} }
-        for (const kk of Object.keys(parsed.data)) await sSet(kk, parsed.data[kk]);
-        S.months = {}; S.config = null; S.meta = null;
+        const cfg = Object.assign({}, inConfig, { poolId: S.config.poolId });
+        await DB.pushSnapshot(cfg, inMeta || S.meta, inMonths);
+        S.config = null; S.meta = null; S.months = {};
         await boot();
         toast('Backup restored');
       }
@@ -540,18 +553,23 @@ export function wireSet() {
       .reduce((n, k) => n + (S.months[k].entries || []).length, 0);
     confirmDialog({
       title: 'Erase everything?',
-      body: 'This deletes <b>' + plural(entryCount, 'entry', 'entries') + '</b>, your savings balance of ' +
-            '<b>' + fmt(S.meta.savingsBalance) + '</b>, and your whole setup. ' +
-            'Export a backup first if you might want any of it. This cannot be undone.',
+      body: 'This wipes the <b>shared</b> pool, so it disappears from her phone too. ' +
+            plural(entryCount, 'entry', 'entries') + ', your savings balance of ' +
+            '<b>' + fmt(S.meta.savingsBalance) + '</b>, your bills, planned spends and ' +
+            'wishlist all go. Export a backup first if you might want any of it.',
       confirmLabel: 'Erase everything',
       danger: true,
       onYes: async () => {
-        const keys = await sList();
-        for (const k of keys) { try { await window.storage.delete(k); } catch (e) {} }
+        await DB.pushSnapshot(
+          Object.assign({}, S.config, {
+            lockedBills: [], planned: [], wishlist: []
+          }),
+          { savingsBalance: 0, lastAmounts: {}, closed: [] },
+          {}
+        );
         S.config = null; S.meta = null; S.months = {};
-        S.wiz = { step: 1, year: 2026, month: null, draft: null };
-        document.getElementById('tabbar').style.display = 'none';
-        renderWizard();
+        await boot();
+        toast('Everything erased');
       }
     });
   };

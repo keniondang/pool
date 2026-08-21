@@ -1,7 +1,7 @@
 import { S } from './state.js';
 import { wireMoney } from './utils.js';
 import { paintIcons } from './icons.js';
-import { md, saveMonth, boot } from './data.js';
+import { md, dropEntry, pushEntry, boot } from './data.js';
 import { fmt, catLabel } from './utils.js';
 import { toast } from './ui.js';
 import { todayView, wireToday } from './views/today.js';
@@ -32,13 +32,14 @@ document.addEventListener('click', async function(e){
     const idx=list.findIndex(en=>en.id===id);
     if(idx<0) return;
     const removed=list[idx];
-    list.splice(idx,1);
-    await saveMonth(k); render();
+    await dropEntry(k, removed);
+    render();
     // undo rather than a confirm: deleting a typo entry is frequent enough
     // that a dialog every time would be tapped through without reading
     toast('Removed '+fmt(removed.amount)+' · '+catLabel(removed.cat||'others'), async ()=>{
-      md(k).entries.splice(idx,0,removed);
-      await saveMonth(k); render();
+      delete removed.rowId;
+      await pushEntry(k, removed);
+      render();
     });
     return;
   }

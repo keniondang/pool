@@ -1,5 +1,5 @@
 import { S } from '../state.js';
-import { sSet } from '../storage.js';
+import * as DB from '../db.js';
 import { MSHORT, SEED, fmt, money, key, nowKey, parseKey, dim, billRow, syncBills, wireMoney } from '../utils.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
@@ -99,8 +99,14 @@ export function wireWizard(){
       if(S.wiz.draft.income-locked-sav<=0){$('e3').classList.add('show');return;}
       S.config={income:S.wiz.draft.income,savingsTarget:sav,startingSavings:start,
         lockedBills:S.wiz.draft.lockedBills,startMonth:S.wiz.month};
-      S.meta={savingsBalance:start,closed:[]};
-      await sSet('config',S.config);await sSet('meta',S.meta);
+      S.meta={savingsBalance:start,closed:[],lastAmounts:{}};
+      const poolId = await DB.createPool({
+        name:'Our pool', income:S.config.income, savingsTarget:S.config.savingsTarget,
+        startingSavings:start, startMonth:S.config.startMonth
+      });
+      S.config.poolId = poolId;
+      await DB.saveConfig(S.config);
+      await DB.saveMeta(poolId, S.meta);
       S.months={};S.viewMonth=(nowKey()>=S.wiz.month)?nowKey():S.wiz.month;
       document.getElementById('tabbar').style.display='flex';
       S.screen='today';render();

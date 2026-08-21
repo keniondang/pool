@@ -1,11 +1,35 @@
 import { S } from './state.js';
-import { sGet, sSet, sList } from './storage.js';
+import * as DB from './db.js';
 import { parseKey, dim, key, nowKey } from './utils.js';
 import { render } from './app.js';
 import { renderWizard } from './views/wizard.js';
 
 export function md(k){ if(!S.months[k]) S.months[k]={entries:[],draws:[]}; return S.months[k]; }
-export async function saveMonth(k){ await sSet('month:'+k,S.months[k]); }
+
+/** Adds one row rather than rewriting the month, so simultaneous
+ *  logging from two phones cannot clobber. */
+export async function pushEntry(k, entry){
+  md(k).entries.push(entry);
+  const { rowId } = await DB.addEntry(S.config.poolId, entry);
+  entry.rowId = rowId;
+}
+
+export async function dropEntry(k, entry){
+  const list=md(k).entries;
+  const i=list.indexOf(entry);
+  if(i>=0) list.splice(i,1);
+  await DB.removeEntry(S.config.poolId, entry);
+  return i;
+}
+
+export async function pushDraw(k, draw){
+  md(k).draws.push(draw);
+  const { rowId } = await DB.addDraw(S.config.poolId, draw);
+  draw.rowId = rowId;
+}
+
+export async function saveConfig(){ await DB.saveConfig(S.config); }
+export async function saveMeta(){ await DB.saveMeta(S.config.poolId, S.meta); }
 
 /** One-off costs you know are coming. Set aside like a bill, so the
  *  money is already there when the day arrives instead of cratering
@@ -45,16 +69,48 @@ export function calc(k,forDay){
 }
 
 export async function boot(){
-  S.config=await sGet('config');
-  if(!S.config){renderWizard();return;}
-  S.meta=await sGet('meta')||{savingsBalance:S.config.startingSavings||0,closed:[]};
-  const keys=await sList();
-  for(const k of keys){ if(k.indexOf('month:')===0){ S.months[k.slice(6)]=await sGet(k)||{entries:[],draws:[]}; } }
-  const cur=nowKey();
-  S.viewMonth = (cur>=S.config.startMonth)?cur:S.config.startMonth;
+  if(!DB.poolToken()){ renderNoToken(); return; }
+  let data;
+  try{
+    data = await DB.loadAll();
+  }catch(e){
+    renderError(e.message);
+    return;
+  }
+  if(!data){ renderWizard(); return; }
+
+  S.config = data.config;
+  S.meta   = data.meta;
+  S.months = data.months;
+
+  const cur = nowKey();
+  S.viewMonth = (cur >= S.config.startMonth) ? cur : S.config.startMonth;
   await sweepClosed();
-  document.getElementById('tabbar').style.display='flex';
+  document.getElementById('tabbar').style.display = 'flex';
   render();
+}
+
+function renderNoToken(){
+  document.getElementById('tabbar').style.display = 'none';
+  document.getElementById('app').innerHTML =
+    '<div class="wrap"><div class="eyebrow">Pool</div>' +
+    '<h1 style="margin-bottom:12px;">Open your link</h1>' +
+    '<div class="card"><div style="font-size:14px;color:var(--ink2);line-height:1.65;">' +
+    'This device has not been paired yet. Open the link that ends in ' +
+    '<code>?k=…</code> once and it will remember from then on.' +
+    '</div></div></div>';
+}
+
+function renderError(msg){
+  document.getElementById('tabbar').style.display = 'none';
+  document.getElementById('app').innerHTML =
+    '<div class="wrap"><div class="eyebrow">Pool</div>' +
+    '<h1 style="margin-bottom:12px;">Cannot reach the database</h1>' +
+    '<div class="card"><div style="font-size:14px;color:var(--ink2);line-height:1.65;">' +
+    'Check your connection, then reload. If this keeps happening the token in ' +
+    'your link may have changed.<br><br>' +
+    '<code style="font-size:12px;color:var(--ink3);">' + msg + '</code>' +
+    '</div></div></div>';
 }
 
 export async function sweepClosed(){
@@ -63,11 +119,14 @@ export async function sweepClosed(){
   for(const k of Object.keys(S.months)){
     if(k<cur && S.meta.closed.indexOf(k)<0){
       const c=calc(k);
-      S.meta.savingsBalance+=S.config.savingsTarget-c.drawn+c.available;
-      S.meta.closed.push(k);changed=true;
+      const swept=S.config.savingsTarget-c.drawn+c.available;
+      S.meta.savingsBalance+=swept;
+      S.meta.closed.push(k);
+      await DB.markCycleClosed(S.config.poolId,k,swept);
+      changed=true;
     }
   }
-  if(changed) await sSet('meta',S.meta);
+  if(changed) await DB.saveMeta(S.config.poolId,S.meta);
 }
 
 export function ensureDay(){
