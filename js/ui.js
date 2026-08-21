@@ -168,3 +168,48 @@ export function formModal({ title, body, fields, submitLabel = 'Add', onSubmit }
     }
   );
 }
+
+
+// ---------------------------------------------------------------- sheet
+
+/**
+ * Full-height bottom sheet whose body can re-render in place. Used for
+ * logging, which stays open across several entries so a till run is one
+ * sheet and three taps rather than three round trips.
+ */
+export function openSheet({ header, body, onMount }) {
+  const host = root();
+  const wrap = document.createElement('div');
+  wrap.className = 'sheet-overlay';
+  wrap.innerHTML =
+    '<div class="sheet" role="dialog" aria-modal="true">' +
+      '<div class="sheet-head" id="sheet-head">' + header + '</div>' +
+      '<div class="sheet-body" id="sheet-body">' + body + '</div>' +
+    '</div>';
+  host.appendChild(wrap);
+  requestAnimationFrame(() => wrap.classList.add('in'));
+
+  const api = {
+    close() {
+      wrap.classList.remove('in');
+      setTimeout(() => wrap.remove(), 200);
+      document.removeEventListener('keydown', onKey);
+    },
+    setHeader(html) {
+      wrap.querySelector('#sheet-head').innerHTML = html;
+      if (onMount) onMount(wrap, api);
+    },
+    setBody(html) {
+      wrap.querySelector('#sheet-body').innerHTML = html;
+      if (onMount) onMount(wrap, api);
+    },
+    el: wrap
+  };
+
+  function onKey(e) { if (e.key === 'Escape') api.close(); }
+  document.addEventListener('keydown', onKey);
+  wrap.onclick = e => { if (e.target === wrap) api.close(); };
+
+  if (onMount) onMount(wrap, api);
+  return api;
+}

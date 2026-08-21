@@ -4,7 +4,7 @@ import { paintIcons } from './icons.js';
 import { md, dropEntry, pushEntry, boot } from './data.js';
 import { fmt, catLabel } from './utils.js';
 import { toast } from './ui.js';
-import { todayView, wireToday } from './views/today.js';
+import { todayView, wireToday, maybeAutoOpen } from './views/today.js';
 import { calView, wireCal } from './views/calendar.js';
 import { setView, wireSet } from './views/settings.js';
 import { trendsView, wireTrends } from './views/trends.js';
@@ -54,4 +54,4 @@ document.getElementById('tabbar').onclick = e => {
 };
 
 paintIcons();
-boot();
+boot().then(() => maybeAutoOpen());
