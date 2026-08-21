@@ -123,7 +123,9 @@ function step1(d) {
         '</div>'
       : '<div class="err" id="e1">Pick a month.</div>') +
 
-    '<div class="navbtns"><button class="btn solid" id="next1" style="flex:1;">Continue</button></div>';
+    '<div class="navbtns"><button class="btn solid" id="next1" style="flex:1;">Continue</button></div>' +
+    '<div style="text-align:center;margin-top:14px;">' +
+    '<button class="btn quiet" id="haveLink">I already have a pool</button></div>';
 }
 
 // ---------------------------------------------------------------- step 2
@@ -306,6 +308,30 @@ function wire() {
     document.querySelectorAll('.pick[data-pick]').forEach(b => {
       b.onclick = () => { d.useBalance = b.dataset.pick === 'balance'; renderWizard(); };
     });
+    // Opening someone's link normally does this, but a browser that
+    // cleared its storage would otherwise create a second pool and lose
+    // access to the first.
+    $('haveLink').onclick = () => {
+      import('../ui.js').then(({ formModal }) => {
+        formModal({
+          title: 'Open an existing pool',
+          body: 'Paste the link you were sent, or just the code from the end of it.',
+          fields: [{ id: 'link', label: 'Link or code', placeholder: 'https://…?k=abc123' }],
+          submitLabel: 'Open it',
+          onSubmit: ({ link }) => {
+            const m = String(link).match(/[?&]k=([^&\s]+)/);
+            const tok = (m ? m[1] : String(link)).trim();
+            if (tok.length < 16) return 'That does not look like a pool code.';
+            try { localStorage.setItem('pool:token', tok); } catch (e) {
+              return 'This browser will not let me store the code.';
+            }
+            location.href = location.pathname;
+            return null;
+          }
+        });
+      });
+    };
+
     $('next1').onclick = () => {
       if (midMonth(d)) {
         if (d.useBalance === null) {
