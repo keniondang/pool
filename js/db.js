@@ -6,58 +6,27 @@
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
-const TOKEN_KEY = 'pool:token';
-
-/**
- * The token arrives once as ?k=... in the link, then lives in this
- * browser and is stripped from the address bar so it is not sitting in
- * screenshots or shared URLs.
- */
-export function poolToken() {
-  try {
-    const url = new URL(location.href);
-    const k = url.searchParams.get('k');
-    if (k) {
-      localStorage.setItem(TOKEN_KEY, k);
-      url.searchParams.delete('k');
-      history.replaceState({}, '', url.pathname + url.search + url.hash);
-      return k;
-    }
-    return localStorage.getItem(TOKEN_KEY);
-  } catch (e) {
-    return null;
-  }
-}
-
-/** A first-time visitor has no link to open, so mint one. Without this
- *  the pool insert carries a null token and RLS refuses it, which looks
- *  from the outside like a dead Start button. */
-export function ensureToken() {
-  let t = poolToken();
-  if (t) return t;
-  const bytes = new Uint8Array(24);
-  (crypto || window.crypto).getRandomValues(bytes);
-  t = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-  try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {}
-  return t;
-}
-
-/** The link to open on the other phone. The token in it is the password. */
-export function shareLink() {
-  return location.origin + location.pathname + '?k=' + (poolToken() || '');
-}
-
-export function clearToken() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-}
+// Security is off for now: no pool code, no policies. The anon key alone
+// reaches these tables, so keep the deployment URL private until RLS goes
+// back on. See sql/disable-rls.sql.
 
 function headers(extra) {
   return Object.assign({
     'apikey': SUPABASE_ANON_KEY,
     'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-    'x-pool-token': poolToken() || '',
     'Content-Type': 'application/json'
   }, extra || {});
+}
+
+async function _request(fullUrl, opts = {}) {
+  const res = await fetch(fullUrl, {
+    method: opts.method || 'GET',
+    headers: headers(opts.headers),
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if (!res.ok) throw new Error('supabase ' + res.status + ': ' + (await res.text()).slice(0, 200));
+  const t = await res.text();
+  return t ? JSON.parse(t) : null;
 }
 
 async function req(path, opts = {}) {
@@ -106,6 +75,8 @@ export async function loadAll() {
     planned: p.planned || [],
     wishlist: p.wishlist || [],
     // one source per salary; falls back to the old single income field
+    openingBalance: Number(p.opening_balance || 0),
+    openingMonth: p.opening_month || p.start_month,
     incomeSources: (p.income_sources && p.income_sources.length)
       ? p.income_sources.map(x => ({ id: x.id, name: x.name, amount: Number(x.amount) }))
       : [{ id: 'src-1', name: 'Salary', amount: Number(p.income) }]
@@ -127,8 +98,8 @@ export async function loadAll() {
       savingsOverride: st.savings_override === null ? null : Number(st.savings_override),
       incomeReceived: st.income_received || {},
       billsPaid: st.bills_paid || {},
-      savingsDone: !!st.savings_done,
-      incomeEarly: st.income_early || {},
+      savingsMoved: st.savings_moved && st.savings_moved.amount !== undefined
+        ? st.savings_moved : null,
       startDay: Number(st.start_day || 1)
     };
   });
@@ -167,6 +138,8 @@ export async function saveConfig(config) {
       income: sources.reduce((s, x) => s + x.amount, 0),
       income_sources: sources,
       savings_target: config.savingsTarget,
+      opening_balance: config.openingBalance || 0,
+      opening_month: config.openingMonth || config.startMonth,
       planned: config.planned || [],
       wishlist: config.wishlist || []
     }
@@ -249,7 +222,9 @@ export async function deletePool(poolId) {
   await req('pools?id=eq.' + poolId, { method: 'DELETE' });
 }
 
-/** Used by the first-run wizard, which creates the pool row itself. */
+/** Goes through create_pool(), a security definer function, so it does
+ *  not have to satisfy an RLS check against a row that does not exist
+ *  yet. Returns the existing pool if this code already has one. */
 export async function createPool(cfg) {
   const rows = await req('pools', {
     method: 'POST',
@@ -260,10 +235,13 @@ export async function createPool(cfg) {
       savings_target: cfg.savingsTarget,
       savings_balance: cfg.startingSavings || 0,
       start_month: cfg.startMonth,
-      access_token: ensureToken()
+      opening_balance: cfg.openingBalance || 0,
+      opening_month: cfg.startMonth
     }
   });
-  return rows && rows[0] ? rows[0].id : null;
+  const id = rows && rows[0] ? rows[0].id : null;
+  if (!id) throw new Error('the database did not return a pool id');
+  return id;
 }
 
 /** Everything the Backup button exports, and what Import pushes back. */
@@ -301,8 +279,8 @@ export async function saveMonthState(poolId, cycleKey, st) {
       savings_override: st.savingsOverride,
       income_received: st.incomeReceived || {},
       bills_paid: st.billsPaid || {},
-      savings_done: !!st.savingsDone,
-      income_early: st.incomeEarly || {},
+      savings_moved: st.savingsMoved || {},
+      savings_done: !!st.savingsMoved,
       start_day: st.startDay || 1,
       updated_at: new Date().toISOString()
     }

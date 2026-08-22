@@ -55,8 +55,7 @@ export function monthState(k){
       savingsOverride: null,
       incomeReceived: {},
       billsPaid: {},
-      savingsDone: false,
-      incomeEarly: {},
+      savingsMoved: null,
       startDay: 1
     };
   }
@@ -67,35 +66,12 @@ export async function saveMonthState(k){
   await DB.saveMonthState(S.config.poolId, k, monthState(k));
 }
 
-/** Received unless explicitly marked otherwise, so the normal month
- *  where everything has landed needs no taps at all. */
+/** Received unless explicitly marked otherwise, so a month where the
+ *  money has landed needs no taps at all. */
 export function incomeIn(k){
   const st = monthState(k);
-  // A source marked as having arrived early went into the previous
-  // month's pool, so it must not be counted again here.
   return (S.config.incomeSources || [])
-    .filter(src => st.incomeReceived[src.id] !== false && !st.incomeEarly[src.id]);
-}
-
-/** Next month's money that landed during this one. It joins this pool. */
-export function earlyInflow(k){
-  const {y,m}=parseKey(k);
-  const n=new Date(y,m+1,1);
-  const nk=key(n.getFullYear(),n.getMonth());
-  const nst=monthState(nk);
-  return (S.config.incomeSources || [])
-    .filter(src => nst.incomeEarly[src.id])
-    .reduce((s,src)=>s+src.amount,0);
-}
-
-export function earlyList(k){
-  const {y,m}=parseKey(k);
-  const n=new Date(y,m+1,1);
-  const nk=key(n.getFullYear(),n.getMonth());
-  const nst=monthState(nk);
-  return (S.config.incomeSources || [])
-    .filter(src => nst.incomeEarly[src.id])
-    .map(src => ({ src, on: nst.incomeEarly[src.id], nk }));
+    .filter(src => st.incomeReceived[src.id] !== false);
 }
 
 export function incomePending(k){
@@ -104,14 +80,88 @@ export function incomePending(k){
     .filter(src => st.incomeReceived[src.id] === false);
 }
 
+export function billCost(b){ return b.amount * (b.times || 1); }
+
 export function billsUnpaid(k){
   const st = monthState(k);
   return S.config.lockedBills.filter(b => !st.billsPaid[b.id]);
 }
 
+export function billsPaidOn(k, isoDate){
+  const st = monthState(k);
+  const out = [];
+  S.config.lockedBills.forEach(b => {
+    const rec = st.billsPaid[b.id];
+    if (rec && rec.on === isoDate) out.push({ bill: b, amount: rec.amount });
+  });
+  const sm = st.savingsMoved;
+  if (sm && sm.on === isoDate) out.push({ bill: { name: 'Savings' }, amount: sm.amount });
+  return out;
+}
+
 export function savingsFor(k){
   const st = monthState(k);
   return st.savingsOverride === null ? S.config.savingsTarget : st.savingsOverride;
+}
+
+export function savingsMovedYet(k){ return !!monthState(k).savingsMoved; }
+
+/** Every month from the opening one up to and including the current one. */
+function monthsToNow(){
+  const out = [];
+  const start = S.config.openingMonth || S.config.startMonth;
+  let { y, m } = parseKey(start);
+  const cur = nowKey();
+  for (let i = 0; i < 240; i++) {
+    const kk = key(y, m);
+    out.push(kk);
+    if (kk >= cur) break;
+    const d = new Date(y, m + 1, 1);
+    y = d.getFullYear(); m = d.getMonth();
+  }
+  return out;
+}
+
+/**
+ * One running balance: what is actually in the account.
+ * Derived rather than stored, so it cannot drift out of step with the
+ * rows it is made of.
+ */
+export function balanceNow(){
+  let bal = S.config.openingBalance || 0;
+
+  monthsToNow().forEach(kk => {
+    const st = monthState(kk);
+
+    // Income only counts once its month has arrived. Next month's salary
+    // landing early sits in the bank uncounted, which errs safe.
+    incomeIn(kk).forEach(src => { bal += src.amount; });
+
+    // `on: null` means it was already paid before you started, so it is
+    // baked into the opening balance and must not come off twice.
+    Object.keys(st.billsPaid).forEach(id => {
+      const rec = st.billsPaid[id];
+      if (rec && rec.on) bal -= rec.amount;
+    });
+
+    const sm = st.savingsMoved;
+    if (sm && sm.on) bal -= sm.amount;
+  });
+
+  Object.keys(S.months).forEach(kk => {
+    (S.months[kk].entries || []).forEach(e => { bal -= e.amount; });
+  });
+
+  return bal;
+}
+
+/** What cannot be spent yet this month, even though it is in the account. */
+export function heldBack(k){
+  const st = monthState(k);
+  const bills = billsUnpaid(k).reduce((s, b) => s + billCost(b), 0);
+  const sav = savingsMovedYet(k) ? 0 : savingsFor(k);
+  const plan = plannedFor(k).reduce((s, p) => s + p.amount, 0);
+  return bills + sav + plan;
 }
 
 export function plannedFor(k){
@@ -121,33 +171,40 @@ export function plannedFor(k){
 export function calc(k,forDay){
   const {y,m}=parseKey(k), days=dim(y,m), d=md(k);
   const st=monthState(k);
-  const locked=S.config.lockedBills.reduce((s,b)=>s+b.amount*(b.times||1),0);
-  const unpaid=billsUnpaid(k).reduce((s,b)=>s+b.amount*(b.times||1),0);
-  const planned=plannedFor(k).reduce((s,p)=>s+p.amount,0);
-  const savings=savingsFor(k);
-  const received=incomeIn(k).reduce((s,x)=>s+x.amount,0);
-  const early=earlyInflow(k);
-
-  // A stated balance is already post-bills, so only the bills you have
-  // NOT paid yet come off it. Without the paid flags this would
-  // double-count them.
-  const pool = (st.balanceOverride !== null
-    ? st.balanceOverride - unpaid - savings - planned
-    : received - locked - savings - planned) + early;
-  const spent=d.entries.reduce((s,e)=>s+e.amount,0);
-  const drawn=d.draws.reduce((s,x)=>s+x.amount,0);
   const real=now();
   const isNow=nowKey()===k;
   const today=isNow?real.getDate():null;
+
   let ref=forDay;
   if(!ref) ref=isNow?real.getDate():days;
   if(ref<1)ref=1; if(ref>days)ref=days;
+
   const cycleStart=Math.min(Math.max(1, st.startDay||1), days);
   const cycleDays=days-cycleStart+1;
   const daysLeft=days-ref+1;
   const daysGone=Math.max(0, ref-cycleStart);
-  const available=pool+drawn-spent;
-  const perDay=Math.max(0,available/daysLeft);
+
+  const locked=S.config.lockedBills.reduce((s,b)=>s+billCost(b),0);
+  const unpaid=billsUnpaid(k).reduce((s,b)=>s+billCost(b),0);
+  const planned=plannedFor(k).reduce((s,p)=>s+p.amount,0);
+  const savings=savingsFor(k);
+  const received=incomeIn(k).reduce((s,x)=>s+x.amount,0);
+
+  const balance=balanceNow();
+  const held=heldBack(k);
+
+  // Spendable now. Bills stay held back even while the cash is sitting
+  // in the account, so ticking one paid moves the balance and the
+  // hold-back by the same amount and the daily number does not budge.
+  const available=balance-held;
+
+  const spent=d.entries.reduce((s,e)=>s+e.amount,0);
+  const drawn=d.draws.reduce((s,x)=>s+x.amount,0);
+  const perDay=Math.max(0, available/Math.max(1,daysLeft));
+
+  // What this month had to spend in total, used for the month bar.
+  const pool=Math.max(0, available+spent);
+
   const byDay={};
   d.entries.forEach(e=>{const dd=+e.date.slice(8,10);
     if(!byDay[dd])byDay[dd]={total:0,snap:e.snap||0,items:[]};
@@ -158,13 +215,13 @@ export function calc(k,forDay){
   const avg=elapsed>0?spent/elapsed:0;
   let big=0,under=0;
   Object.keys(byDay).forEach(dd=>{byDay[dd].total>byDay[dd].snap?big++:under++;});
-  return{y,m,days,ref,cycleStart,cycleDays,early,locked,unpaid,received,savings,planned,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,avg,byDay,big,under,isNow,today};
+
+  return{y,m,days,ref,cycleStart,cycleDays,balance,held,locked,unpaid,received,
+    savings,planned,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,
+    avg,byDay,big,under,isNow,today};
 }
 
 export async function boot(){
-  // No token means a brand new visitor, not a broken one. Mint one and
-  // let them set up; the shareable link appears in Settings afterwards.
-  DB.ensureToken();
   let data;
   try{
     data = await DB.loadAll();
@@ -199,19 +256,14 @@ function renderError(msg){
 }
 
 export async function sweepClosed(){
+  // Nothing to sweep. The balance carries by itself, and savings only
+  // moves when you tick that it moved. Closing a month is bookkeeping.
   const cur=nowKey();
   let changed=false;
   for(const k of Object.keys(S.months)){
     if(k<cur && S.meta.closed.indexOf(k)<0){
-      const c=calc(k);
-      const st=monthState(k);
-      // Only count the target if it was actually set aside. Otherwise
-      // just the leftover pool rolls in.
-      const banked=st.savingsDone ? (savingsFor(k)-c.drawn) : 0;
-      const swept=banked+c.available;
-      S.meta.savingsBalance+=swept;
       S.meta.closed.push(k);
-      await DB.markCycleClosed(S.config.poolId,k,swept);
+      await DB.markCycleClosed(S.config.poolId,k,0);
       changed=true;
     }
   }

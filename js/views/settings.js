@@ -3,7 +3,7 @@ import { fmt, money, wireMoney, parseKey, MONTHS, MSHORT, now, simDate, setSim, 
 import { paintIcons } from '../icons.js';
 import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta,
          monthState, saveMonthState, incomePending, billsUnpaid, savingsFor,
-         isLocked } from '../data.js';
+         isLocked, billCost, balanceNow, heldBack } from '../data.js';
 import * as DB from '../db.js';
 import { render } from '../app.js';
 import { toast, confirmDialog, formModal } from '../ui.js';
@@ -147,52 +147,25 @@ function incomeCard(c) {
     '<button class="addbill" id="addSrc"><i class="ti ti-plus"></i>Add an income source</button>' +
     '<div class="fhint">Every new month starts with all of these ticked. Untick one when ' +
     'it has not landed yet and the pool drops to what is actually there.</div>' +
-    earlyRows(k) +
     '<div class="field-err" id="incomeErr" style="display:none;"></div></div>';
 }
 
-/** Next month's salary that lands during this one. It joins this pool
- *  straight away and is excluded from next month, so nothing is counted
- *  twice. Locked once ticked, because the money is already spendable. */
-function earlyRows(k) {
-  if (isLocked(k)) return '';
-  const { y, m } = parseKey(k);
-  const n = new Date(y, m + 1, 1);
-  const nk = key(n.getFullYear(), n.getMonth());
-  const nst = monthState(nk);
-  const list = S.config.incomeSources || [];
-  if (!list.length) return '';
-  return '<div class="earlybox"><div class="earlyhead">Already arrived for ' +
-    MONTHS[n.getMonth()] + '</div>' +
-    list.map(src => {
-      const on = nst.incomeEarly[src.id];
-      return '<button class="paidrow early' + (on ? ' locked' : '') + '" data-early="' +
-        src.id + '"' + (on ? ' disabled' : '') + '>' +
-        '<span class="tick' + (on ? ' on' : '') + '">' +
-        (on ? '<i class="ti ti-check"></i>' : '') + '</span>' +
-        '<span class="srcname">' + src.name +
-        (on ? '<span class="srcstate">in this pool since ' + on +
-              ' · locked until ' + MONTHS[n.getMonth()] + '</span>' : '') + '</span>' +
-        '<span class="v">' + fmt(src.amount) + '</span></button>';
-    }).join('') +
-    '<div class="fhint" style="margin-top:8px;">Tick it when next month\'s money lands early. ' +
-    'It joins this pool straight away and will not be counted again next month. ' +
-    'It cannot be unticked once the money is spendable.</div></div>';
-}
-
-/** The other phone opens this once. The token in it is the password, so
- *  it is hidden until you ask for it. */
-function shareCard() {
+/** The balance is derived from every income tick, payment and log, so it
+ *  can drift from your actual account. This is the one place to say what
+ *  the truth is; it adjusts the opening figure by the difference rather
+ *  than overwriting anything you have recorded. */
+function balanceCard(c) {
   return '<div class="card"><div class="card-head">' +
-    '<div class="lhs"><i class="ti ti-link"></i>Share with her</div></div>' +
-    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:11px;">' +
-    'Send this link. She opens it once on her phone and you both see the same pool. ' +
-    'Anyone with the link has full access, so keep it out of screenshots.</div>' +
-    '<div class="linkbox" id="linkBox" style="display:none;"></div>' +
-    '<div style="display:flex;gap:8px;">' +
-    '<button class="btn outline" id="showLink" style="flex:1;">Show link</button>' +
-    '<button class="btn outline" id="copyLink" style="flex:1;">Copy</button>' +
-    '</div></div>';
+    '<div class="lhs"><i class="ti ti-wallet"></i>Balance</div>' +
+    '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.balance) + '</span></div>' +
+    '<div class="kv" style="padding-top:0;"><span>Started with</span>' +
+    '<span class="v">' + fmt(S.config.openingBalance || 0) + '</span></div>' +
+    '<div class="kv"><span>Held back right now</span><span class="v">' + fmt(c.held) + '</span></div>' +
+    '<div class="kv"><span>Free to spend</span><span class="v">' + fmt(c.available) + '</span></div>' +
+    '<label class="flabel">What your account actually says</label>' +
+    '<input id="sReal" class="money" type="text" placeholder="' + fmt(c.balance) + '" />' +
+    '<div class="fhint">Only if the two have drifted apart. Nothing you have logged is ' +
+    'changed, the starting figure moves by the difference.</div></div>';
 }
 
 /** Testing only. Moves the app's idea of today so a month rollover can be
@@ -248,6 +221,7 @@ export function setView() {
     '<div class="meta">' + fmt(c.perDay) + ' / day<br>' +
     '<span style="color:var(--ink3);">changes apply straight away</span></div></div>' +
 
+    balanceCard(c) +
     incomeCard(c) +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-lock"></i>Locked bills</div>' +
@@ -255,13 +229,18 @@ export function setView() {
     (S.config.lockedBills.length
       ? S.config.lockedBills.map((b, i) => {
           const t = b.times || 1;
-          return '<div class="kv"><span>' + b.name +
-            (t > 1 ? '<span style="color:var(--ink3);font-size:12px;"> · ' +
-              fmt(b.amount) + ' × ' + t + ' a month</span>' : '') + '</span>' +
-            '<span style="display:flex;align-items:center;gap:10px;">' +
-            '<span class="v">' + fmt(b.amount * t) + '</span>' +
+          const rec = monthState(S.viewMonth).billsPaid[b.id];
+          return '<div class="srcrow' + (rec ? ' done' : '') + '">' +
+            '<button class="tick' + (rec ? ' on' : '') + '" data-bill="' + b.id + '">' +
+            (rec ? '<i class="ti ti-check"></i>' : '') + '</button>' +
+            '<span class="srcname">' + b.name +
+            '<span class="srcstate">' +
+            (rec ? (rec.on ? 'paid ' + rec.on : 'paid before you started')
+                 : (t > 1 ? fmt(b.amount) + ' × ' + t + ' · held back' : 'held back')) +
+            '</span></span>' +
+            '<span class="v">' + fmt(billCost(b)) + '</span>' +
             '<button class="iconbtn billdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
-            '</span></div>';
+            '</div>';
         }).join('')
       : '<div class="empty">No bills yet.</div>') +
     '<button class="addbill" id="addBill"><i class="ti ti-plus"></i>Add a bill</button></div>' +
@@ -276,7 +255,6 @@ export function setView() {
     '<label class="flabel">Balance</label>' +
     '<input id="sBal" class="money" type="text" value="' + fmt(S.meta.savingsBalance) + '" /></div>' +
 
-    shareCard() +
     testCard() +
 
     '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-download"></i>Backup</div></div>' +
@@ -442,43 +420,19 @@ export function wireSet() {
     });
   };
 
-  document.querySelectorAll('.paidrow.early').forEach(btn => {
-    btn.onclick = async () => {
-      const { y, m } = parseKey(k);
-      const n = new Date(y, m + 1, 1);
-      const nk = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
-      const nst = monthState(nk);
-      const id = btn.dataset.early;
-      // Locked once ticked: the money is in the pool and may already be spent,
-      // so unticking it would silently take spendable money away.
-      if (nst.incomeEarly[id]) return;
-      nst.incomeEarly[id] = now().toISOString().slice(0, 10);
-      await saveMonthState(nk);
-      render();
-      toast(fmt((S.config.incomeSources.find(x => x.id === id) || {}).amount || 0) +
-            ' added to this pool');
-    };
+  const real = $('sReal');
+  if (real) real.addEventListener('blur', async () => {
+    const raw = real.value.trim();
+    if (raw === '') return;
+    const actual = money(raw);
+    const shown = calc(S.viewMonth, S.curDay).balance;
+    const diff = actual - shown;
+    if (diff === 0) { real.value = ''; return; }
+    S.config.openingBalance = (S.config.openingBalance || 0) + diff;
+    await persist();
+    render();
+    toast((diff > 0 ? 'Added ' : 'Removed ') + fmt(Math.abs(diff)));
   });
-
-  const sl = $('showLink');
-  if (sl) sl.onclick = () => {
-    const box = $('linkBox');
-    box.textContent = DB.shareLink();
-    box.style.display = box.style.display === 'none' ? 'block' : 'none';
-  };
-  const cl = $('copyLink');
-  if (cl) cl.onclick = async () => {
-    const link = DB.shareLink();
-    try {
-      await navigator.clipboard.writeText(link);
-      toast('Link copied');
-    } catch (e) {
-      const box = $('linkBox');
-      box.textContent = link;
-      box.style.display = 'block';
-      toast('Copy it from above');
-    }
-  };
 
   const jn = $('jumpNext');
   if (jn) jn.onclick = () => {
@@ -489,6 +443,28 @@ export function wireSet() {
   };
   const jr = $('jumpReal');
   if (jr) jr.onclick = () => { setSim(null); location.reload(); };
+
+  // Ticking a bill paid moves the balance and the hold-back by the same
+  // amount, so the daily number stays exactly where it was.
+  document.querySelectorAll('.tick[data-bill]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.bill;
+      const bill = S.config.lockedBills.find(b => b.id === id);
+      if (!bill) return;
+      if (st.billsPaid[id]) {
+        delete st.billsPaid[id];
+      } else {
+        const { y, m } = parseKey(k);
+        const day = String(Math.min(S.curDay || now().getDate(), 28)).padStart(2, '0');
+        st.billsPaid[id] = {
+          amount: billCost(bill),
+          on: k + '-' + (nowKey() === k ? String(now().getDate()).padStart(2, '0') : day)
+        };
+      }
+      await saveMonthState(k);
+      render();
+    };
+  });
 
   // ---- planned one-off spends ----
   const addPlanned = $('addPlanned');

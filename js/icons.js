@@ -26,6 +26,7 @@ export const ICONS={
 'ti-clock-hour-4':'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
 'ti-calendar-stats':'<path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 17v-3M12 17v-5M16 17v-2"/>',
 'ti-link':'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+'ti-wallet':'<path d="M17 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6"/><path d="M16 13h2"/>',
 'ti-flask':'<path d="M10 3h4M10.5 3v6L5 19a1.7 1.7 0 0 0 1.5 2.5h11A1.7 1.7 0 0 0 19 19l-5.5-10V3M7.5 15h9"/>',
 'ti-bookmark':'<path d="M7 4h10v16l-5-4-5 4z"/>',
 'ti-chart-line':'<path d="M4 4v16h16"/><path d="M7 15l4-5 3 3 5-7"/>',

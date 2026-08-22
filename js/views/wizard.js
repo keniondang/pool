@@ -124,8 +124,7 @@ function step1(d) {
       : '<div class="err" id="e1">Pick a month.</div>') +
 
     '<div class="navbtns"><button class="btn solid" id="next1" style="flex:1;">Continue</button></div>' +
-    '<div style="text-align:center;margin-top:14px;">' +
-    '<button class="btn quiet" id="haveLink">I already have a pool</button></div>';
+    '';
 }
 
 // ---------------------------------------------------------------- step 2
@@ -308,30 +307,6 @@ function wire() {
     document.querySelectorAll('.pick[data-pick]').forEach(b => {
       b.onclick = () => { d.useBalance = b.dataset.pick === 'balance'; renderWizard(); };
     });
-    // Opening someone's link normally does this, but a browser that
-    // cleared its storage would otherwise create a second pool and lose
-    // access to the first.
-    $('haveLink').onclick = () => {
-      import('../ui.js').then(({ formModal }) => {
-        formModal({
-          title: 'Open an existing pool',
-          body: 'Paste the link you were sent, or just the code from the end of it.',
-          fields: [{ id: 'link', label: 'Link or code', placeholder: 'https://…?k=abc123' }],
-          submitLabel: 'Open it',
-          onSubmit: ({ link }) => {
-            const m = String(link).match(/[?&]k=([^&\s]+)/);
-            const tok = (m ? m[1] : String(link)).trim();
-            if (tok.length < 16) return 'That does not look like a pool code.';
-            try { localStorage.setItem('pool:token', tok); } catch (e) {
-              return 'This browser will not let me store the code.';
-            }
-            location.href = location.pathname;
-            return null;
-          }
-        });
-      });
-    };
-
     $('next1').onclick = () => {
       if (midMonth(d)) {
         if (d.useBalance === null) {
@@ -433,7 +408,8 @@ function wire() {
         btn.disabled = false;
         btn.textContent = S.wiz.mode === 'edit' ? 'Save' : 'Start';
         const e = $('e4');
-        e.textContent = 'Could not save: ' + (err && err.message ? err.message : err);
+        e.textContent = 'Could not save: ' +
+          (err && err.message ? err.message : String(err));
         e.classList.add('show');
         console.error('setup failed', err);
       }
@@ -497,7 +473,8 @@ async function finish() {
       income: d.incomeSources.reduce((s, x) => s + x.amount, 0),
       savingsTarget: d.savingsTarget,
       startingSavings: d.startingSavings,
-      startMonth: d.startMonth
+      startMonth: d.startMonth,
+      openingBalance: d.useBalance ? d.balance : 0
     });
     S.config = { poolId: poolId, startMonth: d.startMonth };
     S.meta = { savingsBalance: d.startingSavings, closed: [], lastAmounts: {} };
@@ -506,6 +483,8 @@ async function finish() {
   S.config.incomeSources = d.incomeSources;
   S.config.lockedBills = d.lockedBills;
   S.config.savingsTarget = d.savingsTarget;
+  S.config.openingBalance = d.useBalance ? d.balance : 0;
+  S.config.openingMonth = d.startMonth;
   S.config.planned = d.planned || [];
   S.config.wishlist = S.config.wishlist || [];
   S.meta.savingsBalance = d.startingSavings;
@@ -528,7 +507,16 @@ async function finish() {
   st.savingsOverride = midMonth(d) ? d.savingsThisMonth : null;
   st.billsPaid = {};
   if (midMonth(d) && d.useBalance && d.billsPaid) {
-    S.config.lockedBills.forEach(b => { st.billsPaid[b.id] = true; });
+    // `on: null` means already paid before you started, so it is baked
+    // into the opening balance and must not be deducted again.
+    S.config.lockedBills.forEach(b => {
+      st.billsPaid[b.id] = { amount: b.amount * (b.times || 1), on: null };
+    });
+  }
+  // A stated balance already reflects this month's income.
+  st.incomeReceived = {};
+  if (midMonth(d) && d.useBalance) {
+    (S.config.incomeSources || []).forEach(src => { st.incomeReceived[src.id] = false; });
   }
   await saveMonthState(k);
 

@@ -1,7 +1,8 @@
 import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey, catColor, catTint, catIcon, catLabel, catOf, now } from '../utils.js';
 import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor,
-         monthState, saveMonthState, incomePending, savingsFor, isLocked } from '../data.js';
+         monthState, saveMonthState, incomePending, savingsFor, isLocked,
+         balanceNow, heldBack, billsPaidOn, savingsMovedYet } from '../data.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
@@ -219,11 +220,10 @@ export function todayView() {
       '<div class="hero-label">Safe to spend today</div>' +
       '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
       '<div class="herostats">' +
-        '<div><span class="l">' + (c.available < 0 ? 'Over pool' : 'Pool left') + '</span>' +
+        '<div><span class="l">In the account</span><span class="v">' + fmt(c.balance) + '</span></div>' +
+        '<div><span class="l">Held back</span><span class="v">' + fmt(c.held) + '</span></div>' +
+        '<div><span class="l">' + (c.available < 0 ? 'Overspent' : 'Free to spend') + '</span>' +
         '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
-        '<div><span class="l">Spent today</span><span class="v">' + fmt(todayTotal) + '</span></div>' +
-        '<div><span class="l">' + (over ? 'Over by' : 'To go') + '</span>' +
-        '<span class="v">' + fmt(Math.abs(c.perDay - todayTotal)) + '</span></div>' +
       '</div>' +
       '<div class="mb-head"><span>Pool spent</span><span>day ' +
       (c.ref - c.cycleStart + 1) + ' of ' + c.cycleDays + '</span></div>' +
@@ -246,19 +246,26 @@ export function todayView() {
       '</b> arrived early and is in this pool. It will not be counted again next month.</span></div>') +
     (locked ? '' : upcomingCard(k, c)) +
 
-    (dayEntries.length
-      ? '<div class="card"><div class="card-head">' +
+    (function () {
+      const paid = billsPaidOn(k, tIso);
+      if (!dayEntries.length && !paid.length) return '';
+      return '<div class="card"><div class="card-head">' +
         '<div class="lhs"><i class="ti ti-list"></i>Logged ' +
         (viewingToday ? 'today' : 'this day') + '</div>' +
         '<span style="font-variant-numeric:tabular-nums;">' + fmt(dayTotal) + '</span></div>' +
-        entryRows(dayEntries, locked) + '</div>'
-      : '') +
+        entryRows(dayEntries, locked) +
+        // Grey, and outside the day's spending total, so paying rent does
+        // not turn the day amber or distort your first-week share.
+        paid.map(p => '<div class="entry billpay"><span class="amt">' + fmt(p.amount) + '</span>' +
+          '<span class="cat"><i class="ti ti-lock"></i>bill</span>' +
+          '<span class="note">' + p.bill.name + '</span></div>').join('') +
+        '</div>';
+    })() +
 
     stripCard(k, c) +
 
-    '<div class="handled"><i class="ti ti-lock"></i><span><b>' +
-    fmt(c.locked + c.savings) + '</b> in bills and savings ' +
-    (locked ? 'were covered' : 'already covered') + '</span></div>' +
+    '<div class="handled"><i class="ti ti-lock"></i><span><b>' + fmt(c.held) +
+    '</b> held back for bills and savings, still in the account</span></div>' +
 
     '<div class="card"><div class="card-head"><div class="lhs">' +
     '<i class="ti ti-shield-check"></i>Savings</div></div>' +
@@ -297,14 +304,14 @@ function entryRows(list, locked) {
  *  fiction, so the sweep waits for this tick. */
 function savedRow(k, c, locked) {
   if (locked || c.savings <= 0) return '';
-  const done = monthState(k).savingsDone;
+  const done = savingsMovedYet(k);
   return '<button class="paidrow savedone" style="margin-top:4px;">' +
     '<span class="tick' + (done ? ' on' : '') + '">' +
     (done ? '<i class="ti ti-check"></i>' : '') + '</span>' +
     '<span class="srcname">' + (done ? 'Money moved across' : 'Not moved across yet') +
     '<span class="srcstate">' +
-    (done ? 'counts toward your balance when the month closes'
-          : 'only the leftover pool gets banked until you tick this') +
+    (done ? 'moved out of the account, no longer held back'
+          : 'held back from your daily number until it moves') +
     '</span></span></button>';
 }
 
@@ -317,11 +324,20 @@ export function wireToday() {
 
   const sd = document.querySelector('.savedone');
   if (sd) sd.onclick = async () => {
-    const st = monthState(S.viewMonth);
-    st.savingsDone = !st.savingsDone;
-    await saveMonthState(S.viewMonth);
+    const k = S.viewMonth;
+    const st = monthState(k);
+    if (st.savingsMoved) {
+      st.savingsMoved = null;
+    } else {
+      const { y, m } = parseKey(k);
+      const day = nowKey() === k ? now().getDate() : (S.curDay || 1);
+      st.savingsMoved = { amount: savingsFor(k), on: iso(y, m, day) };
+      S.meta.savingsBalance += savingsFor(k);
+      await saveMeta();
+    }
+    await saveMonthState(k);
     render();
-    toast(st.savingsDone ? 'Savings marked as moved' : 'Savings marked as not moved');
+    toast(st.savingsMoved ? 'Savings moved' : 'Marked as not moved');
   };
 
   document.querySelectorAll('.gotit').forEach(btn => {

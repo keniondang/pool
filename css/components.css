@@ -548,3 +548,13 @@ input.invalid{ border-color:#C4795E !important; }
   padding:10px 12px; margin-bottom:10px; word-break:break-all; color:var(--ink2);
   user-select:all; -webkit-user-select:all;
 }
+
+.srcrow.spent .tick{ border-color:var(--brass-mid); background:var(--brass-bg); color:var(--brass); }
+.srcrow.spent .srcname{ color:var(--ink2); }
+.movehere{ padding:7px 11px; font-size:12px; flex-shrink:0; }
+
+.entry.billpay{ opacity:.72; }
+.entry.billpay .amt{ font-weight:400; color:var(--ink2); }
+.entry.billpay .cat{ background:var(--paper); color:var(--ink3); border:1px solid var(--line); }
+.srcrow.done .srcname{ color:var(--ink2); }
+.srcrow.done .v{ color:var(--ink3); }
