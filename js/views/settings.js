@@ -3,7 +3,8 @@ import { fmt, money, wireMoney, parseKey, MONTHS, MSHORT, now, simDate, setSim, 
 import { paintIcons } from '../icons.js';
 import { calc, boot, plannedFor, md, pushEntry, saveConfig, saveMeta,
          monthState, saveMonthState, incomePending, billsUnpaid, savingsFor,
-         isLocked, billCost, balanceNow, heldBack } from '../data.js';
+         isLocked, billCost, balanceNow, heldBack, nextMonthKey, nextIncomeIn,
+         maybeAutoMoveSavings } from '../data.js';
 import * as DB from '../db.js';
 import { render } from '../app.js';
 import { toast, confirmDialog, formModal } from '../ui.js';
@@ -133,7 +134,26 @@ function incomeCard(c) {
     (c.received !== total ? ' of ' + fmt(total) : '') + '</span></div>' +
     (list.length
       ? list.map((src, i) => {
+          // Explicit true only ever comes from the early-arrival tick made
+          // last month, never from this month's own toggle — so it means
+          // "already confirmed," not "please recheck me."
+          const preConfirmed = st.incomeReceived[src.id] === true;
+          // A stated starting balance already has this month's income baked
+          // in, so the wizard marks every source unreceived on purpose —
+          // ticking it "in" here would count it a second time.
+          const bakedIn = st.incomeReceived[src.id] === false && st.balanceOverride !== null;
           const inYet = st.incomeReceived[src.id] !== false;
+          if (preConfirmed || bakedIn) {
+            return '<div class="srcrow locked">' +
+              '<span class="tick on locked"><i class="ti ti-lock"></i></span>' +
+              '<span class="srcname">' + src.name +
+              '<span class="srcstate">' +
+              (preConfirmed ? 'confirmed last month' : 'counted in your starting balance') +
+              '</span></span>' +
+              '<span class="v">' + fmt(src.amount) + '</span>' +
+              '<button class="iconbtn srcdel" data-i="' + i + '"><i class="ti ti-trash"></i></button>' +
+              '</div>';
+          }
           return '<div class="srcrow">' +
             '<button class="tick' + (inYet ? ' on' : '') + '" data-src="' + src.id + '">' +
             (inYet ? '<i class="ti ti-check"></i>' : '') + '</button>' +
@@ -146,22 +166,85 @@ function incomeCard(c) {
       : '<div class="empty">No income sources yet.</div>') +
     '<button class="addbill" id="addSrc"><i class="ti ti-plus"></i>Add an income source</button>' +
     '<div class="fhint">Every new month starts with all of these ticked. Untick one when ' +
-    'it has not landed yet and the pool drops to what is actually there.</div>' +
+    'it has not landed yet and the balance drops to what is actually there.</div>' +
+    nextIncomeRows(k) +
     '<div class="field-err" id="incomeErr" style="display:none;"></div></div>';
+}
+
+/** Salary lands at the end of the month, so next month's money normally
+ *  arrives during this one. Ticking it puts it in the balance and
+ *  stretches the horizon to the end of next month, because that is how
+ *  long it has to last. */
+function nextIncomeRows(k) {
+  if (isLocked(k)) return '';
+  const nk = nextMonthKey(k);
+  const nst = monthState(nk);
+  const { m } = parseKey(nk);
+  const list = S.config.incomeSources || [];
+  if (!list.length) return '';
+  return '<div class="earlybox"><div class="earlyhead">' + MONTHS[m] + ' salary, arrived yet?</div>' +
+    list.map(src => {
+      const on = nst.incomeReceived[src.id] === true;
+      return '<button class="paidrow" data-next="' + src.id + '">' +
+        '<span class="tick' + (on ? ' on' : '') + '">' +
+        (on ? '<i class="ti ti-check"></i>' : '') + '</span>' +
+        '<span class="srcname">' + src.name +
+        '<span class="srcstate">' + (on ? 'in the balance, spendable now' : 'not in yet') +
+        '</span></span><span class="v">' + fmt(src.amount) + '</span></button>';
+    }).join('') +
+    '<div class="fhint" style="margin-top:8px;">Spend it as soon as it lands. ' +
+    MONTHS[m] + '\'s bills come off straight away too, and your daily number spreads ' +
+    'across the rest of ' + MONTHS[m] + ' rather than just the days left here.</div></div>';
+}
+
+/** The stored total moves on its own now (auto-move on salary, draws
+ *  subtracting), so it is shown rather than typed. The target changes from
+ *  next month on, never mid-month, so this month's number cannot be
+ *  pulled out from under a plan already in motion. */
+function savingsCard() {
+  const nk = nextMonthKey(S.viewMonth);
+  const { m: nm } = parseKey(nk);
+  return '<div class="card"><div class="card-head">' +
+    '<div class="lhs"><i class="ti ti-shield-check"></i>Savings</div>' +
+    '<span style="font-variant-numeric:tabular-nums;">' + fmt(S.meta.savingsBalance) + '</span></div>' +
+    '<div class="kv" style="padding-top:0;"><span>Target each month</span>' +
+    '<span class="v">' + fmt(S.config.savingsTarget) + '</span></div>' +
+    '<button class="btn outline" id="editSavTarget" style="width:100%;margin-top:8px;">' +
+    'Change target for ' + MONTHS[nm] + '</button>' +
+    '<label class="flabel">What your savings actually holds</label>' +
+    '<input id="sBalReal" class="money" type="text" placeholder="' + fmt(S.meta.savingsBalance) + '" />' +
+    '<div class="fhint">Only if the two have drifted apart. The stored balance moves by ' +
+    'the difference.</div></div>';
 }
 
 /** The balance is derived from every income tick, payment and log, so it
  *  can drift from your actual account. This is the one place to say what
  *  the truth is; it adjusts the opening figure by the difference rather
  *  than overwriting anything you have recorded. */
+function heldRows(c) {
+  const p = c.heldParts, out = [];
+  const row = (label, v) => v > 0
+    ? '<div class="kv"><span style="color:var(--ink3);">' + label + '</span>' +
+      '<span class="v" style="color:var(--ink3);">-' + fmt(v) + '</span></div>' : '';
+  const { m } = parseKey(S.viewMonth);
+  const nm = parseKey(nextMonthKey(S.viewMonth)).m;
+  out.push(row('Bills not yet paid', p.bills));
+  out.push(row('Savings not yet moved', p.savings));
+  out.push(row('Set aside', p.planned));
+  out.push(row(MONTHS[nm] + ' bills', p.nextBills));
+  out.push(row(MONTHS[nm] + ' savings', p.nextSavings));
+  return out.join('');
+}
+
 function balanceCard(c) {
   return '<div class="card"><div class="card-head">' +
     '<div class="lhs"><i class="ti ti-wallet"></i>Balance</div>' +
     '<span style="font-variant-numeric:tabular-nums;">' + fmt(c.balance) + '</span></div>' +
     '<div class="kv" style="padding-top:0;"><span>Started with</span>' +
     '<span class="v">' + fmt(S.config.openingBalance || 0) + '</span></div>' +
-    '<div class="kv"><span>Held back right now</span><span class="v">' + fmt(c.held) + '</span></div>' +
-    '<div class="kv"><span>Free to spend</span><span class="v">' + fmt(c.available) + '</span></div>' +
+    heldRows(c) +
+    '<div class="kv" style="border-top:1px solid var(--line2);margin-top:4px;padding-top:10px;">' +
+    '<span>Free to spend</span><span class="v">' + fmt(c.available) + '</span></div>' +
     '<label class="flabel">What your account actually says</label>' +
     '<input id="sReal" class="money" type="text" placeholder="' + fmt(c.balance) + '" />' +
     '<div class="fhint">Only if the two have drifted apart. Nothing you have logged is ' +
@@ -248,12 +331,7 @@ export function setView() {
     plannedCard() +
     wishlistCard() +
 
-    '<div class="card"><div class="card-head"><div class="lhs"><i class="ti ti-shield-check"></i>Savings</div></div>' +
-    '<label class="flabel" style="margin-top:0;">Target each month</label>' +
-    '<input id="sSav" class="money" type="text" value="' + fmt(S.config.savingsTarget) + '" />' +
-    '<div class="field-err" id="savErr" style="display:none;"></div>' +
-    '<label class="flabel">Balance</label>' +
-    '<input id="sBal" class="money" type="text" value="' + fmt(S.meta.savingsBalance) + '" /></div>' +
+    savingsCard() +
 
     testCard() +
 
@@ -272,32 +350,6 @@ export function setView() {
 export function wireSet() {
   const $ = id => document.getElementById(id);
 
-  // ---- numbers commit on blur, not on keystroke ----
-  // Saving per keystroke would briefly store "2" while you type "24500000",
-  // which makes bills exceed income and zeroes the daily number mid-typing.
-  const bindNumber = (id, errId, apply) => {
-    const el = $(id);
-    if (!el) return;
-    el.addEventListener('blur', async () => {
-      const value = money(el.value);
-      const err = apply(value, true);
-      const errEl = errId ? $(errId) : null;
-      if (err) {
-        // Refuse it and put the stored value back, so the field never
-        // displays a number the app has not actually accepted.
-        el.value = fmt(apply(null, true, 'current'));
-        el.classList.remove('invalid');
-        if (errEl) { errEl.textContent = err; errEl.style.display = 'block'; }
-        return;
-      }
-      el.classList.remove('invalid');
-      if (errEl) errEl.style.display = 'none';
-      apply(value, false);
-      await persist();
-      render();
-    });
-  };
-
   // ---- income sources ----
   const k = S.viewMonth;
   const st = monthState(k);
@@ -308,6 +360,7 @@ export function wireSet() {
       st.incomeReceived[id] = !(st.incomeReceived[id] !== false);
       if (st.incomeReceived[id] !== false) delete st.incomeReceived[id];
       await saveMonthState(k);
+      await maybeAutoMoveSavings(k);
       render();
     };
   });
@@ -351,24 +404,49 @@ export function wireSet() {
     });
   };
 
-  // ---- this month only ----
-  bindNumber('sSav', 'savErr', (v, dry, mode) => {
-    if (mode === 'current') return S.config.savingsTarget;
-    if (v < 0) return 'Savings cannot be negative.';
-    const err = validate({ savingsTarget: v });
-    if (err) return err;
-    if (!dry) S.config.savingsTarget = v;
-    return null;
-  });
-
-  const bal = $('sBal');
-  if (bal) {
-    bal.addEventListener('blur', async () => {
-      S.meta.savingsBalance = money(bal.value);
-      await saveMeta();
-      render();
+  // ---- savings target: takes effect next month, this month is frozen ----
+  const editSavTarget = $('editSavTarget');
+  if (editSavTarget) editSavTarget.onclick = () => {
+    const nk = nextMonthKey(k);
+    const { m: nm } = parseKey(nk);
+    formModal({
+      title: 'Change target for ' + MONTHS[nm],
+      body: 'This month keeps its current target of ' + fmt(S.config.savingsTarget) + '.',
+      fields: [{ id: 'target', label: 'New target each month', placeholder: '0',
+                 money: true, value: fmt(S.config.savingsTarget) }],
+      submitLabel: 'Save',
+      onSubmit: ({ target }) => {
+        if (target < 0) return 'Savings cannot be negative.';
+        const nextPlanned = plannedFor(nk).reduce((s, p) => s + p.amount, 0);
+        const err = validate({ savingsTarget: target, planned: nextPlanned });
+        if (err) return err;
+        const cur = monthState(k);
+        // Only the first change this month should freeze it — a second
+        // edit must not re-freeze at the already-changed global value.
+        if (cur.savingsOverride === null) cur.savingsOverride = S.config.savingsTarget;
+        S.config.savingsTarget = target;
+        Promise.all([saveMonthState(k), persist()]).then(() => {
+          render();
+          toast('Savings target updated for ' + MONTHS[nm]);
+        });
+        return null;
+      }
     });
-  }
+  };
+
+  // ---- savings balance is tracked automatically; this only corrects drift ----
+  const savReal = $('sBalReal');
+  if (savReal) savReal.addEventListener('blur', async () => {
+    const raw = savReal.value.trim();
+    if (raw === '') return;
+    const actual = money(raw);
+    const diff = actual - S.meta.savingsBalance;
+    if (diff === 0) { savReal.value = ''; return; }
+    S.meta.savingsBalance = actual;
+    await saveMeta();
+    render();
+    toast((diff > 0 ? 'Added ' : 'Removed ') + fmt(Math.abs(diff)));
+  });
 
   // ---- bills: immediate, with undo ----
   document.querySelectorAll('.billdel').forEach(btn => {
@@ -419,6 +497,18 @@ export function wireSet() {
       }
     });
   };
+
+  document.querySelectorAll('.paidrow[data-next]').forEach(btn => {
+    btn.onclick = async () => {
+      const nk = nextMonthKey(k);
+      const nst = monthState(nk);
+      const id = btn.dataset.next;
+      if (nst.incomeReceived[id] === true) delete nst.incomeReceived[id];
+      else nst.incomeReceived[id] = true;
+      await saveMonthState(nk);
+      render();
+    };
+  });
 
   const real = $('sReal');
   if (real) real.addEventListener('blur', async () => {
@@ -737,6 +827,7 @@ export function wireSet() {
       danger: true,
       onYes: async () => {
         await DB.deletePool(S.config.poolId);
+        setSim(null);   // a leftover test jump must not leak into the fresh setup
         S.config = null; S.meta = null; S.months = {}; S.monthStates = {};
         S.viewMonth = null; S.curDay = null;
         S.wiz = { step: 1, year: 0, month: null, draft: null, mode: 'create' };

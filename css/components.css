@@ -463,6 +463,8 @@ input.invalid{ border-color:#C4795E !important; }
   cursor:pointer; color:transparent; font-size:14px; padding:0;
 }
 .tick.on{ background:var(--sage); border-color:var(--sage); color:#fff; }
+.tick.locked{ cursor:default; background:var(--line2); border-color:var(--line2); color:var(--ink3); }
+.srcrow.locked .srcname{ color:var(--ink2); }
 
 .card.pending{ border-color:var(--brass-mid); background:var(--brass-bg); }
 .card.pending .card-head, .card.pending .card-head i{ color:#8A6526; }

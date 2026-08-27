@@ -44,9 +44,29 @@ export const SEED={income:24500000,savingsTarget:6000000,startingSavings:0,
 let SIM=null;
 try{ SIM=localStorage.getItem('pool:sim')||null; }catch(e){}
 
+/** A Date whose local getters (getDate, getHours, ...) report the wall
+ *  clock of `tz` instead of the device's own timezone, so two phones in
+ *  different timezones (or one with the wrong clock) agree on "today". */
+function zonedNow(tz){
+  if(!tz) return new Date();
+  try{
+    const parts=new Intl.DateTimeFormat('en-US',{
+      timeZone:tz, hour12:false,
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit'
+    }).formatToParts(new Date());
+    const get=t=>+parts.find(p=>p.type===t).value;
+    return new Date(get('year'), get('month')-1, get('day'), get('hour')%24, get('minute'), get('second'));
+  }catch(e){ return new Date(); }
+}
+
 /** Every "what is today" question goes through this, so the test jump
- *  moves the whole app rather than one screen. */
-export function now(){ return SIM ? new Date(SIM+'T12:00:00') : new Date(); }
+ *  moves the whole app rather than one screen. The pool's saved timezone
+ *  (not whichever device is asking) decides the date once one is set. */
+export function now(){
+  if(SIM) return new Date(SIM+'T12:00:00');
+  return zonedNow(S.config && S.config.timezone);
+}
 export function simDate(){ return SIM; }
 export function setSim(v){
   SIM=v;

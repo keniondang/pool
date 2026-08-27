@@ -3,7 +3,7 @@ import * as DB from '../db.js';
 import { MONTHS, MSHORT, fmt, money, key, nowKey, parseKey, dim, wireMoney, now } from '../utils.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
-import { monthState, saveMonthState } from '../data.js';
+import { monthState, saveMonthState, maybeAutoMoveSavings } from '../data.js';
 
 // Four steps. Nobody opens a budgeting app on the 1st of the month, so a
 // mid-month start is a first-class path here rather than a repair job.
@@ -478,6 +478,9 @@ async function finish() {
     });
     S.config = { poolId: poolId, startMonth: d.startMonth };
     S.meta = { savingsBalance: d.startingSavings, closed: [], lastAmounts: {} };
+    // Whichever device sets the pool up decides "today" for both, from
+    // here on — not each phone's own clock.
+    S.config.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   }
 
   S.config.incomeSources = d.incomeSources;
@@ -519,6 +522,7 @@ async function finish() {
     (S.config.incomeSources || []).forEach(src => { st.incomeReceived[src.id] = false; });
   }
   await saveMonthState(k);
+  await maybeAutoMoveSavings(k);
 
   S.viewMonth = (nowKey() >= d.startMonth) ? nowKey() : d.startMonth;
   S.curDay = null;

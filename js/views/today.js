@@ -2,7 +2,7 @@ import { S } from '../state.js';
 import { MONTHS, MSHORT, CATS, fmt, short, money, iso, parseKey, key, nowKey, catColor, catTint, catIcon, catLabel, catOf, now } from '../utils.js';
 import { md, calc, pushEntry, pushDraw, saveMeta, ensureDay, shiftDay, plannedFor,
          monthState, saveMonthState, incomePending, savingsFor, isLocked,
-         balanceNow, heldBack, billsPaidOn, savingsMovedYet } from '../data.js';
+         balanceNow, heldBack, billsPaidOn, savingsMovedYet, maybeAutoMoveSavings } from '../data.js';
 import { paintIcons } from '../icons.js';
 import { render } from '../app.js';
 import { formModal, confirmDialog, toast, openSheet } from '../ui.js';
@@ -161,10 +161,13 @@ export function todayView() {
     const p = new Date(y, m - 1, 1);
     return key(p.getFullYear(), p.getMonth()) < S.config.startMonth;
   })();
-  const nextBlocked = isCurrent
-    ? dnum >= real.getDate()
-    : (() => { const n = new Date(y, m + 1, 1);
-               return key(n.getFullYear(), n.getMonth()) > nowKey() && dnum >= c.days; })();
+  // Any day within the displayed month is fair game (e.g. logging something
+  // you already know is coming); only an actual future calendar month
+  // that has not started yet stays off limits.
+  const nextBlocked = dnum >= c.days && (() => {
+    const n = new Date(y, m + 1, 1);
+    return key(n.getFullYear(), n.getMonth()) > nowKey();
+  })();
 
   const pl = paceLine(c, k);
   const over = todayTotal > c.perDay;
@@ -198,7 +201,8 @@ export function todayView() {
       '<i class="ti ti-chevron-left"></i></button>' +
       '<div class="daynav-mid"><span class="dn">' +
       dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) +
-      (viewingToday ? '' : ' <span class="viewonly">' + (locked ? 'closed' : 'past day') + '</span>') +
+      (viewingToday ? '' : ' <span class="viewonly">' +
+        (locked ? 'closed' : (dnum > real.getDate() ? 'future day' : 'past day')) + '</span>') +
       '</span><span class="ds">' +
       (dayTotal > 0 ? fmt(dayTotal) + ' logged' : 'nothing logged') + '</span></div>' +
       '<button class="navbtn" id="dNext"' + (nextBlocked ? ' disabled' : '') + '>' +
@@ -225,8 +229,10 @@ export function todayView() {
         '<div><span class="l">' + (c.available < 0 ? 'Overspent' : 'Free to spend') + '</span>' +
         '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
       '</div>' +
-      '<div class="mb-head"><span>Pool spent</span><span>day ' +
-      (c.ref - c.cycleStart + 1) + ' of ' + c.cycleDays + '</span></div>' +
+      '<div class="mb-head"><span>Spent</span><span>' +
+      (c.horizon > c.daysLeft
+        ? 'spread over ' + c.horizon + ' days, into ' + MONTHS[(m + 1) % 12]
+        : 'day ' + (c.ref - c.cycleStart + 1) + ' of ' + c.cycleDays) + '</span></div>' +
       '<div class="monthbar"><span class="mb-fill" style="width:' + pl.spentPct + '%"></span>' +
       '<span class="mb-tick" style="left:' + pl.monthPct + '%"></span></div>' +
       '<div class="pace">' + pl.text + '</div></div>';
@@ -265,7 +271,11 @@ export function todayView() {
     stripCard(k, c) +
 
     '<div class="handled"><i class="ti ti-lock"></i><span><b>' + fmt(c.held) +
-    '</b> held back for bills and savings, still in the account</span></div>' +
+    '</b> held back' +
+    (c.heldParts.stretched
+      ? ', including ' + MONTHS[(m + 1) % 12] + '\'s bills'
+      : ' for bills and savings') +
+    '. Still in the account.</span></div>' +
 
     '<div class="card"><div class="card-head"><div class="lhs">' +
     '<i class="ti ti-shield-check"></i>Savings</div></div>' +
@@ -345,6 +355,7 @@ export function wireToday() {
       const st = monthState(S.viewMonth);
       delete st.incomeReceived[btn.dataset.src];
       await saveMonthState(S.viewMonth);
+      await maybeAutoMoveSavings(S.viewMonth);
       render();
       toast('Marked as received');
     };
