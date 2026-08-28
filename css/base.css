@@ -12,6 +12,9 @@
     --brass:#A8752E;
     --brass-bg:#F7EEDF;
     --brass-mid:#E3C79A;
+    --rust:#9A4A2E;
+    --rust-bg:#F7E6DE;
+    --rust-mid:#E0C4B8;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;}

@@ -217,6 +217,20 @@ function savingsCard() {
     'the difference.</div></div>';
 }
 
+/** Never overrides the daily number — a floor that quietly propped it up
+ *  would just mean the account runs dry before the month does. It only
+ *  warns, early enough to actually do something about it. */
+function floorCard() {
+  return '<div class="card"><div class="card-head"><div class="lhs">' +
+    '<i class="ti ti-alert-triangle"></i>Minimum per day</div></div>' +
+    '<div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:10px;">' +
+    'The least you can actually live on in a day. This never changes the daily number — ' +
+    'it only warns ahead of time if spending keeps up and the honest number is about to ' +
+    'drop below it.</div>' +
+    '<input id="sFloor" class="money" type="text" ' +
+    'value="' + (S.config.dailyFloor ? fmt(S.config.dailyFloor) : '') + '" placeholder="0" /></div>';
+}
+
 /** The balance is derived from every income tick, payment and log, so it
  *  can drift from your actual account. This is the one place to say what
  *  the truth is; it adjusts the opening figure by the difference rather
@@ -332,6 +346,7 @@ export function setView() {
     wishlistCard() +
 
     savingsCard() +
+    floorCard() +
 
     testCard() +
 
@@ -446,6 +461,14 @@ export function wireSet() {
     await saveMeta();
     render();
     toast((diff > 0 ? 'Added ' : 'Removed ') + fmt(Math.abs(diff)));
+  });
+
+  // ---- minimum per day: a warning threshold, not part of the math ----
+  const floorInput = $('sFloor');
+  if (floorInput) floorInput.addEventListener('blur', async () => {
+    S.config.dailyFloor = money(floorInput.value);
+    await persist();
+    render();
   });
 
   // ---- bills: immediate, with undo ----

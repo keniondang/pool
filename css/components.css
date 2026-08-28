@@ -381,28 +381,36 @@ input.invalid{ border-color:#C4795E !important; }
 .hero.tint.warn .hero-label{ color:#8A6526; }
 .hero.tint.warn .hero-num{ color:#78561F; }
 .hero.tint.warn .hero-num .cur{ color:#9C7B3F; }
+.hero.tint.danger{ background:var(--rust-bg); border-color:var(--rust-mid); }
+.hero.tint.danger .hero-label{ color:#7A3A22; }
+.hero.tint.danger .hero-num{ color:#6B3019; }
+.hero.tint.danger .hero-num .cur{ color:#8A5039; }
 
 .mb-head{
   display:flex; justify-content:space-between; font-size:11.5px;
   margin-top:18px; color:#3D6B52; font-variant-numeric:tabular-nums;
 }
 .hero.tint.warn .mb-head{ color:#8A6526; }
+.hero.tint.danger .mb-head{ color:#7A3A22; }
 
 .monthbar{
   position:relative; height:7px; border-radius:99px; margin-top:6px;
   background:rgba(63,120,88,.18);
 }
 .hero.tint.warn .monthbar{ background:rgba(168,117,46,.2); }
+.hero.tint.danger .monthbar{ background:rgba(154,74,46,.2); }
 .mb-fill{
   display:block; height:100%; border-radius:99px; background:var(--sage);
   transition:width .3s ease;
 }
 .hero.tint.warn .mb-fill{ background:var(--brass); }
+.hero.tint.danger .mb-fill{ background:var(--rust); }
 .mb-tick{
   position:absolute; top:-3px; width:2px; height:13px; border-radius:1px;
   background:#2C513E; opacity:.55; transform:translateX(-1px);
 }
 .hero.tint.warn .mb-tick{ background:#78561F; }
+.hero.tint.danger .mb-tick{ background:#6B3019; }
 
 .pace{
   font-size:12.5px; line-height:1.55; margin-top:9px; color:#3D6B52;
@@ -410,6 +418,8 @@ input.invalid{ border-color:#C4795E !important; }
 .pace b{ color:#2C513E; }
 .hero.tint.warn .pace{ color:#8A6526; }
 .hero.tint.warn .pace b{ color:#78561F; }
+.hero.tint.danger .pace{ color:#7A3A22; }
+.hero.tint.danger .pace b{ color:#6B3019; }
 
 /* ---------------------------------------------------------- 14 day strip */
 .strip{ display:flex; align-items:flex-end; gap:4px; height:56px; }
@@ -434,6 +444,7 @@ input.invalid{ border-color:#C4795E !important; }
   margin-top:15px; padding-top:13px; border-top:1px solid rgba(63,120,88,.22);
 }
 .hero.tint.warn .herostats{ border-top-color:rgba(168,117,46,.26); }
+.hero.tint.danger .herostats{ border-top-color:rgba(154,74,46,.26); }
 .herostats > div{ display:flex; flex-direction:column; gap:3px; min-width:0; }
 .herostats .l{ font-size:11px; color:#5C806C; letter-spacing:.02em; }
 .herostats .v{
@@ -442,6 +453,8 @@ input.invalid{ border-color:#C4795E !important; }
 }
 .hero.tint.warn .herostats .l{ color:#9C7B3F; }
 .hero.tint.warn .herostats .v{ color:#78561F; }
+.hero.tint.danger .herostats .l{ color:#8A5039; }
+.hero.tint.danger .herostats .v{ color:#6B3019; }
 
 /* keep multi-part banner text as one flex item so the gap does not
    land either side of every <b> */

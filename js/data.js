@@ -319,9 +319,22 @@ export function calc(k,forDay){
   let big=0,under=0;
   Object.keys(byDay).forEach(dd=>{byDay[dd].total>byDay[dd].snap?big++:under++;});
 
+  // A floor never touches the number itself — it only says how many days
+  // of spending at the recent average it would take to honestly drop
+  // below it, so overspending gets a warning before it becomes a crisis.
+  const floor=S.config.dailyFloor||0;
+  let floorDays=null;
+  if(floor>0){
+    if(perDay<floor) floorDays=0;
+    else if(avg>floor){
+      const n=Math.ceil((available-floor*horizon)/(avg-floor));
+      if(n>=0 && n<=horizon) floorDays=n;
+    }
+  }
+
   return{y,m,days,ref,cycleStart,cycleDays,balance,held,heldParts,horizon,locked,unpaid,received,
     savings,planned,pool,spent,drawn,available,perDay,daysLeft,daysGone,elapsed,
-    avg,byDay,big,under,isNow,today,early:heldParts.early};
+    avg,byDay,big,under,isNow,today,early:heldParts.early,floor,floorDays};
 }
 
 export async function boot(){
@@ -345,14 +358,6 @@ export async function boot(){
   S.meta        = data.meta;
   S.months      = data.months;
   S.monthStates = data.monthStates || {};
-
-  // Older pools were created before "today" was pinned to a saved zone —
-  // detect once here so every device after this agrees, instead of each
-  // one quietly using its own clock forever.
-  if (!S.config.timezone) {
-    S.config.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    await saveConfig();
-  }
 
   const cur = nowKey();
   S.viewMonth = (cur >= S.config.startMonth) ? cur : S.config.startMonth;

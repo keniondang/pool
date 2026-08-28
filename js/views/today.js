@@ -171,7 +171,8 @@ export function todayView() {
 
   const pl = paceLine(c, k);
   const over = todayTotal > c.perDay;
-  const pct = c.perDay > 0 ? Math.min(100, todayTotal / c.perDay * 100) : 0;
+  const basePerDay = Math.round(c.pool / Math.max(1, c.cycleDays));
+  const underFloor = c.floor > 0 && c.perDay < c.floor;
 
   let banner = '';
   if (locked) {
@@ -220,7 +221,8 @@ export function todayView() {
         '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
         '<div><span class="l">Big days</span><span class="v">' + c.big + '</span></div>' +
       '</div></div>'
-    : '<div class="hero tint' + (pl.over ? ' warn' : '') + '">' +
+    : '<div class="hero tint' +
+      (underFloor ? ' danger' : (pl.over || over) ? ' warn' : '') + '">' +
       '<div class="hero-label">Safe to spend today</div>' +
       '<div class="hero-num">' + fmt(c.perDay) + '<span class="cur">VND</span></div>' +
       '<div class="herostats">' +
@@ -228,6 +230,10 @@ export function todayView() {
         '<div><span class="l">Held back</span><span class="v">' + fmt(c.held) + '</span></div>' +
         '<div><span class="l">' + (c.available < 0 ? 'Overspent' : 'Free to spend') + '</span>' +
         '<span class="v">' + fmt(Math.abs(c.available)) + '</span></div>' +
+        '<div><span class="l">Started at</span><span class="v">' + fmt(basePerDay) + '</span></div>' +
+        (c.floor > 0
+          ? '<div><span class="l">Your floor</span><span class="v">' + fmt(c.floor) + '</span></div>'
+          : '') +
       '</div>' +
       '<div class="mb-head"><span>Spent</span><span>' +
       (c.horizon > c.daysLeft
@@ -246,6 +252,13 @@ export function todayView() {
       '</button>') +
 
     banner +
+    (locked || c.floorDays === null ? '' :
+      '<div class="banner warn"><i class="ti ti-alert-triangle"></i><span>' +
+      (c.floorDays === 0
+        ? 'You\'re already under your ' + fmt(c.floor) + ' minimum for the day.'
+        : 'At this pace, you\'ll drop below your ' + fmt(c.floor) + ' minimum in ' +
+          c.floorDays + ' day' + (c.floorDays === 1 ? '' : 's') + '.') +
+      '</span></div>') +
     (locked ? '' : pendingIncomeCard(k)) +
     (locked || !c.early ? '' :
       '<div class="banner safe"><i class="ti ti-coin"></i><span><b>' + fmt(c.early) +

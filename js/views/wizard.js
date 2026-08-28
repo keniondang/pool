@@ -21,7 +21,8 @@ const blank = () => ({
   billsPaid: false,
   savingsTarget: 0,
   savingsThisMonth: null,    // null = same as target
-  startingSavings: 0
+  startingSavings: 0,
+  dailyFloor: 0
 });
 
 function fromConfig() {
@@ -37,7 +38,8 @@ function fromConfig() {
     billsPaid: Object.keys(st.billsPaid || {}).length > 0,
     savingsTarget: S.config.savingsTarget,
     savingsThisMonth: st.savingsOverride,
-    startingSavings: S.meta.savingsBalance
+    startingSavings: S.meta.savingsBalance,
+    dailyFloor: S.config.dailyFloor || 0
   };
 }
 
@@ -195,6 +197,13 @@ function step4(d) {
         '<div class="fhint">Blank keeps your usual target. Put 0 if you are skipping ' +
         MONTHS[m] + ' and starting properly next month.</div>'
       : '') +
+
+    '<label class="flabel">Minimum you can live on per day</label>' +
+    '<input id="wFloor" class="money" type="text" placeholder="0" ' +
+    'value="' + (d.dailyFloor ? fmt(d.dailyFloor) : '') + '" />' +
+    '<div class="fhint">Optional. Later, if spending keeps up and the honest daily ' +
+    'number is about to drop below this, you get a warning ahead of time — the ' +
+    'number itself is never propped up.</div>' +
 
     '<div class="err" id="e4">That does not leave anything to live on. Lower one of them.</div>' +
     '<div class="preview" id="prev"><span class="l">Your daily number</span>' +
@@ -447,6 +456,7 @@ function syncStep() {
       const raw = $('wSavMonth').value.trim();
       d.savingsThisMonth = raw === '' ? null : money(raw);
     }
+    if ($('wFloor')) d.dailyFloor = money($('wFloor').value);
   }
 }
 
@@ -478,9 +488,6 @@ async function finish() {
     });
     S.config = { poolId: poolId, startMonth: d.startMonth };
     S.meta = { savingsBalance: d.startingSavings, closed: [], lastAmounts: {} };
-    // Whichever device sets the pool up decides "today" for both, from
-    // here on — not each phone's own clock.
-    S.config.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   }
 
   S.config.incomeSources = d.incomeSources;
@@ -490,6 +497,7 @@ async function finish() {
   S.config.openingMonth = d.startMonth;
   S.config.planned = d.planned || [];
   S.config.wishlist = S.config.wishlist || [];
+  S.config.dailyFloor = d.dailyFloor || 0;
   S.meta.savingsBalance = d.startingSavings;
 
   await DB.saveConfig(S.config);
